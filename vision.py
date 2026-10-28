@@ -202,6 +202,18 @@ def read_card(img: np.ndarray, box: Box) -> Card:
         price_approx=price[1], serial_digits=None if serial else digits))
 
 
+def has_banner(img: np.ndarray) -> bool:
+    """True while an in-game announcement ("X bought Y") band is drawn across the window.
+
+    It is part of the game, so focus checks can't see it; it covers cards and the title.
+    """
+    c = img.astype(int)
+    r, g, b = c[..., 2], c[..., 1], c[..., 0]
+    olive = (r >= 70) & (np.abs(r - g) <= 25) & (r - b >= 35)  # yellow tint: red ~ green, little blue
+    banner_rows = olive.mean(1) > 0.6
+    return banner_rows.sum() >= 0.02 * img.shape[0]
+
+
 def read_cards(img: np.ndarray) -> list[Card]:
     return [read_card(img, b) for b in find_cards(img)]
 

@@ -223,3 +223,6 @@ __marimo__/
 .claude/
 CLAUDE.md
 sniper_arena_scanner_handoff/
+
+# scanner output: screenshots and CSVs with other players' names
+output/

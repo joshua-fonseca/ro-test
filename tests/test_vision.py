@@ -94,3 +94,8 @@ def test_text_and_colour_disagreeing_keeps_neither(monkeypatch):
     monkeypatch.setattr(vision, "read_stattrak", lambda area: True)  # colour now claims StatTrak
     listing = vision.read_card(img, box).listing
     assert (listing.serial, listing.stattrak, listing.serial_digits) == (None, None, None)
+
+
+def test_announcement_banner_is_detected():
+    assert vision.has_banner(load("live_banner"))  # "X bought Y" band across the top of the list
+    assert not vision.has_banner(load("nya_reaper"))  # same list, no banner
