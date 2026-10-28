@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# local-only project files
+.claude/
+CLAUDE.md
+sniper_arena_scanner_handoff/
