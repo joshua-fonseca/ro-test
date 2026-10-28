@@ -3,6 +3,7 @@
 Every field is located relative to a detected card, so the window size is not fixed.
 A wrong serial is worse than none: serials need both brackets and all OCR variants to agree.
 """
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -13,6 +14,11 @@ import pytesseract
 
 from models import Listing
 from parsing import parse_price, parse_serial, price_is_approximate
+
+# The Windows installer does not put tesseract on PATH; WSL/Linux finds it on PATH.
+_WIN_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+if os.name == "nt" and os.path.exists(_WIN_TESSERACT):
+    pytesseract.pytesseract.tesseract_cmd = _WIN_TESSERACT
 
 Box = tuple[int, int, int, int]  # left, top, right, bottom
 
