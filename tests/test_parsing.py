@@ -1,11 +1,13 @@
 import pytest
 
-from parsing import format_serial, parse_price, parse_rarity, parse_serial
+from parsing import format_serial, parse_price, parse_rarity, parse_serial, price_is_approximate
 
 
 @pytest.mark.parametrize("text,expected", [
     ("8,700", 8700), ("8700", 8700), ("  9,000 ", 9000), ("1,234,567", 1234567), ("0", 0),
+    ("12.2k", 12200), ("12k", 12000), ("12.2K", 12200), ("1.5m", 1500000), ("0.5k", 500), ("10.1k", 10100),
     ("", None), ("8.700", None), ("12,34", None), ("1,2345", None), ("-5", None), ("8,7OO", None),
+    ("12.k", None), ("k", None), ("12.2kk", None), ("1,200k", None),
 ])
 def test_parse_price(text, expected):
     assert parse_price(text) == expected
@@ -33,3 +35,8 @@ def test_format_serial_round_trips():
 ])
 def test_parse_rarity(tag, expected):
     assert parse_rarity(tag) == expected
+
+
+def test_price_is_approximate_only_for_abbreviated_prices():
+    assert price_is_approximate("12.2k") and price_is_approximate("1.5M")
+    assert not price_is_approximate("9,949") and not price_is_approximate("8700")

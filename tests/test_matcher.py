@@ -44,3 +44,8 @@ def test_stattrak_filters():
 
 def test_serial_zero_is_a_real_serial_not_unknown():
     assert matches(target(max_serial=5), Listing(100, 0, False))
+
+
+def test_approximate_price_is_compared_at_face_value():
+    assert matches(target(max_price=12200), Listing(12200, 1, False, price_approx=True))
+    assert not matches(target(max_price=12000), Listing(12200, 1, False, price_approx=True))

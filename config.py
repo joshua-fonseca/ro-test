@@ -6,8 +6,8 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Config:
-    window_width: int = 1280
-    window_height: int = 720
+    window_width: int | None = None  # None = smallest size Roblox allows on its monitor
+    window_height: int | None = None
     initial_backward_seconds: float = 2.0  # hold S once at start to reach the E Open prompt
     interact_hold_seconds: float = 0.1  # E press length
     cycle_delay_seconds: float = 15.0  # wait after a completed cycle

@@ -1,17 +1,28 @@
 """Turn text read from the screen into typed values. None means unreadable, never a guess."""
 import re
+from decimal import Decimal
 
 _PRICE = re.compile(r"\d{1,3}(,\d{3})+|\d+")
+_ABBREV = re.compile(r"(\d+(?:\.\d+)?)([kKmM])")
+_SCALE = {"k": 1_000, "m": 1_000_000}
 _SERIAL = re.compile(r"\[?\s*#\s*(ST\.)?\s*(\d+)\s*\]?")
 _RARITY = {"SCRT": "Secret", "HSCRT": "Secret", "LTD": "Limited", "HLTD": "Limited"}
 
 
 def parse_price(text: str) -> int | None:
-    """'8,700' -> 8700. Anything that isn't a plain or comma-grouped integer is None."""
+    """'8,700' -> 8700; '12.2k' -> 12200 (see price_is_approximate). Anything else is None."""
     t = text.strip()
-    if not _PRICE.fullmatch(t):
-        return None
-    return int(t.replace(",", ""))
+    if _PRICE.fullmatch(t):
+        return int(t.replace(",", ""))
+    m = _ABBREV.fullmatch(t)
+    if m:
+        return int(Decimal(m.group(1)) * _SCALE[m.group(2).lower()])
+    return None
+
+
+def price_is_approximate(text: str) -> bool:
+    """The game shows large prices as '12.2k', which only has three significant digits."""
+    return _ABBREV.fullmatch(text.strip()) is not None
 
 
 def parse_serial(text: str) -> tuple[int, bool] | None:
