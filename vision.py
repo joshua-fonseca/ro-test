@@ -18,7 +18,7 @@ Box = tuple[int, int, int, int]  # left, top, right, bottom
 
 CARD_ASPECT = 4.62  # card width / height, measured on three window sizes
 # Below this card width (about a 1500-wide window) OCR agreed on wrong serials, so serials are left unreadable.
-MIN_SERIAL_CARD_WIDTH = 600
+MIN_SERIAL_CARD_WIDTH = 600  # shortcut: set from one fixture near the limit (1538 wide), retune once live captures at 1536-1700 exist
 LOADING = "[Loading...]"
 # Field boxes as fractions of the card: x0, y0, x1, y1. Serial includes both brackets.
 SELLER_BOX = (0.20, 0.08, 0.71, 0.38)
@@ -26,6 +26,8 @@ PRICE_BOX = (0.72, 0.08, 0.895, 0.40)
 SERIAL_BOX = (0.04, 0.60, 0.22, 0.80)  # search area; the text itself is found by colour
 
 _BG = np.array([48, 42, 39])  # modal background, BGR
+# shortcut: cards are found only on this exact colour (+-2), so a colour-shifted capture finds none and looks like
+# "no results"; main.py must treat [] as an unknown screen, and widen this if real captures miss.
 _SERIAL_STRICT = re.compile(r"\[#(ST\.)?\d+\]")
 
 
@@ -84,9 +86,9 @@ def _text_colour(img: np.ndarray) -> np.ndarray:
     return np.clip(np.minimum(r, np.maximum(g, b)) - np.minimum(g, b), 0, 255).astype(np.uint8)
 
 
-def _variants(crop: np.ndarray, channel=lambda img: img.max(2)) -> list[np.ndarray]:
-    """Upscaled to ~90 px tall: Otsu, inverted Otsu, and the plain channel."""
-    scale = 90 / max(1, crop.shape[0])
+def _variants(crop: np.ndarray, channel=lambda img: img.max(2), height: int = 90) -> list[np.ndarray]:
+    """Upscaled to `height` px tall: Otsu, inverted Otsu, and the plain channel."""
+    scale = height / max(1, crop.shape[0])
     big = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     g = channel(big)
     g = cv2.copyMakeBorder(g, 10, 10, 10, 10, cv2.BORDER_REPLICATE)
@@ -102,36 +104,59 @@ def _ocr(crop: np.ndarray, whitelist: str | None, **kw) -> list[str]:
 
 def _serial_text(area: np.ndarray) -> np.ndarray | None:
     """Crop to the orange/magenta serial text: a fixed box either cuts a bracket or catches gun art."""
-    mx, mn = area.max(2).astype(int), area.min(2).astype(int)
-    g, b = area[..., 1].astype(int), area[..., 0].astype(int)
-    # bright, not white, strong red, plus green (orange) or blue (magenta) so the red background is excluded
-    mask = (mx >= 190) & (mn <= 140) & (area[..., 2] >= 190) & (np.maximum(g, b) >= 100)
+    mask = _text_colour(area) >= 120  # orange text ~170, magenta ~255; pink gun art ~80, red/white ~0
     rows = mask.sum(1)
     if rows.max() == 0:
         return None
     # Only the block of touching rows around the busiest one, so stray coloured rows can't stretch the crop.
     y0, y1 = next(r for r in _runs(rows >= 0.3 * rows.max()) if r[0] <= rows.argmax() < r[1])
-    gap = max(2, (y1 - y0) // 2)
-    cols = cv2.morphologyEx(mask[y0:y1].any(0).astype(np.uint8)[None], cv2.MORPH_CLOSE, np.ones((1, gap), np.uint8))[0]
-    x0, x1 = max(_runs(cols > 0), key=lambda r: r[1] - r[0])
     pad = max(2, (y1 - y0) // 4)
-    return area[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad]
+    # The thumbnail frame is a coloured vertical bar: columns lit far above or below the text are not text.
+    outside = np.r_[mask[:max(0, y0 - pad)], mask[y1 + pad:]]
+    bar = outside.mean(0) >= 0.3 if len(outside) else np.zeros(mask.shape[1], bool)
+    gap = max(2, (y1 - y0) // 2)
+    text = (mask[y0:y1].any(0) & ~bar).astype(np.uint8)[None]
+    cols = cv2.morphologyEx(text, cv2.MORPH_CLOSE, np.ones((1, gap), np.uint8))[0]
+    x0, x1 = max(_runs(cols > 0), key=lambda r: r[1] - r[0])
+    left = max([x0 - pad, 0] + [i + 1 for i in np.where(bar[:x0])[0]])
+    right = min([x1 + pad] + [i for i in np.where(bar[x1:])[0] + x1])  # stop before the frame
+    return area[max(0, y0 - pad):y1 + pad, left:right]
 
 
-def read_serial(area: np.ndarray) -> tuple[int, bool] | None:
-    """(serial, stattrak) only if every variant reads the same strict `[#N]` / `[#ST.N]`."""
+def read_stattrak(area: np.ndarray) -> bool | None:
+    """StatTrak serials are orange, plain ones magenta; a colour check, so it works when the digits don't read."""
     crop = _serial_text(area)
     if crop is None:
         return None
-    texts = _ocr(crop, "#ST.0123456789[]", channel=_text_colour)
-    if len(set(texts)) != 1 or not _SERIAL_STRICT.fullmatch(texts[0]):
-        return None
-    return parse_serial(texts[0])
+    text = _text_colour(crop) >= 120
+    c = crop.astype(int)
+    orange = (c[..., 1][text] > c[..., 0][text]).mean()  # orange has more green than blue, magenta the reverse
+    return True if orange >= 0.8 else False if orange <= 0.2 else None
+
+
+def read_serial(area: np.ndarray) -> tuple[tuple[int, bool] | None, int | None]:
+    """((serial, stattrak), digits). The serial only if every read, at three sizes, gives the same strict
+    `[#N]` / `[#ST.N]`; else the digit count (display only) if every read has that form and the same length."""
+    crop = _serial_text(area)
+    if crop is None:
+        return None, None
+    # Reads at one size agree even when wrong ('1]' merging into ']'); other sizes split glyphs differently.
+    texts = [t for h in (60, 90, 120) for t in _ocr(crop, "#ST.0123456789[]", channel=_text_colour, height=h)]
+    # shortcut: tested on 37 serials from 3 skin families (28 read, 0 wrong); add live captures of other skins
+    # before trusting serial-limited targets.
+    if not all(_SERIAL_STRICT.fullmatch(t) for t in texts):
+        return None, None
+    lengths = {len(str(parse_serial(t)[0])) for t in texts}
+    if len(set(texts)) == 1:
+        return parse_serial(texts[0]), lengths.pop()
+    return None, lengths.pop() if len(lengths) == 1 else None
 
 
 def read_price(card_img: np.ndarray) -> tuple[int, bool] | None:
     """(price, approximate) only if every variant reads the same text; a cut digit still parses."""
     texts = _ocr(card_img, "0123456789,.kKmM")
+    # shortcut: one empty read rejects an otherwise agreed price (seen on a 7,000 card); ignore empty reads if
+    # prices go missing in real scans, but keep rejecting disagreeing non-empty reads.
     if len(set(texts)) != 1 or parse_price(texts[0]) is None:
         return None
     return parse_price(texts[0]), price_is_approximate(texts[0])
@@ -160,11 +185,15 @@ def read_card(img: np.ndarray, box: Box) -> Card:
     price = read_price(_sub(img, box, PRICE_BOX))
     if seller is None or price is None:
         return Card(box, True)
+    area = _sub(img, box, SERIAL_BOX)
+    stattrak = read_stattrak(area)
     big_enough = box[2] - box[0] >= MIN_SERIAL_CARD_WIDTH
-    serial = read_serial(_sub(img, box, SERIAL_BOX)) if big_enough else None
+    serial, digits = read_serial(area) if big_enough else (None, None)
+    if serial and serial[1] != stattrak:  # text says ST but colour says plain, or the reverse: trust neither
+        serial = stattrak = digits = None
     return Card(box, True, listing=Listing(
-        price=price[0], serial=serial[0] if serial else None,
-        stattrak=serial[1] if serial else None, seller=seller, price_approx=price[1]))
+        price=price[0], serial=serial[0] if serial else None, stattrak=stattrak, seller=seller,
+        price_approx=price[1], serial_digits=None if serial else digits))
 
 
 def read_cards(img: np.ndarray) -> list[Card]:

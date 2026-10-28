@@ -6,7 +6,7 @@ from config import Config, load_config
 def test_defaults_when_no_file(tmp_path):
     assert load_config(str(tmp_path / "missing.json")) == Config()
     assert Config().initial_backward_seconds == 2.0 and Config().cycle_delay_seconds == 15.0
-    assert Config().window_width is None and Config().window_height is None  # smallest allowed
+    assert Config().window_width is None and Config().window_height is None  # largest that fits
 
 
 def test_file_overrides_known_keys_and_ignores_unknown(tmp_path):

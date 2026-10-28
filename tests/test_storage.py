@@ -40,7 +40,9 @@ def test_append_csv_writes_header_once(tmp_path):
 def test_match_line_format():
     line = format_match_line(TARGET, Listing(8700, 291, True, "Bob"), "output/s.png")
     assert line == "[SECRET] [Nocturne Marlin [Rainbow]] [#ST.291] [8,700] [output/s.png]"
-    assert "[NO_SERIAL]" in format_match_line(TARGET, Listing(8700, None, None), "p")
+    assert "[Unknown]" in format_match_line(TARGET, Listing(8700, None, None), "p")
+    assert "[ST.4-digit]" in format_match_line(TARGET, Listing(8700, None, True, serial_digits=4), "p")
+    assert "[3-digit]" in format_match_line(TARGET, Listing(8700, None, False, serial_digits=3), "p")
     assert "[PRICE_UNREADABLE]" in format_match_line(TARGET, Listing(None, 1, False), "p")
 
 

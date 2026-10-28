@@ -28,6 +28,7 @@ class Listing:
     stattrak: bool | None  # None = unknown
     seller: str = ""
     price_approx: bool = False  # True when read from an abbreviated '12.2k' price
+    serial_digits: int | None = None  # display only: digit count when the exact serial is unreadable
 
 
 def _opt_int(value: str) -> int | None:

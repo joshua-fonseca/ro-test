@@ -57,8 +57,18 @@ def listing_id(target: Target, listing: Listing) -> str:
     return hashlib.sha1("|".join(parts).encode()).hexdigest()[:12]
 
 
+def serial_label(listing: Listing) -> str:
+    """Exact serial, else '3-digit' when only the length is known, else 'Unknown'. Display only."""
+    # User decision 2026-10-28: 'Unknown' and the n-digit labels replace the spec's NO_SERIAL; keep them.
+    if listing.serial is not None:
+        return format_serial(listing.serial, bool(listing.stattrak))
+    if listing.serial_digits is not None:
+        return f"{'ST.' if listing.stattrak else ''}{listing.serial_digits}-digit"
+    return "Unknown"
+
+
 def format_match_line(target: Target, listing: Listing, screenshot_path: str) -> str:
-    serial = "NO_SERIAL" if listing.serial is None else format_serial(listing.serial, bool(listing.stattrak))
+    serial = serial_label(listing)
     price = "PRICE_UNREADABLE" if listing.price is None else f"{listing.price:,}"
     return f"[{target.rarity.upper()}] [{target.skin_name}] [{serial}] [{price}] [{screenshot_path}]"
 
@@ -102,7 +112,7 @@ class Store:
             "scan_id": self.scan_id, "observed_at": observed_at.isoformat(timespec="seconds"),
             "skin_name": target.skin_name, "category": target.category, "rarity": target.rarity,
             "stattrak": "" if listing.stattrak is None else str(listing.stattrak).lower(),
-            "serial": "" if listing.serial is None else listing.serial,
+            "serial": listing.serial if listing.serial is not None else serial_label(listing),
             "price": "" if listing.price is None else listing.price,
             "price_approx": str(listing.price_approx).lower(), "seller_display_name": listing.seller,
             "listing_id": lid, "screenshot_path": shot, "crop_status": crop_status,
