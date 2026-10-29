@@ -49,8 +49,8 @@ def append_csv(path: Path, fields: list[str], row: dict) -> None:
 
 def listing_id(target: Target, listing: Listing) -> str:
     """Best-effort fingerprint. With a serial the price is not part of it, so a price change is the same listing.
-    Without one (the seller is no longer read) the price is, or every serial-less listing would look the same;
-    two serial-less listings at one price collide, which is accepted.
+    Without one (a card over max_price, whose serial is not read, or a serial that did not read) the price is, or all
+    such cards of a skin would look the same; two of them at one price collide, which is accepted.
     """
     parts = [target.skin_name.casefold(), target.category.casefold(), listing.seller.strip().casefold(),
              str(listing.price) if listing.serial is None else "", "" if listing.serial is None else str(listing.serial),

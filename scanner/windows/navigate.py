@@ -76,6 +76,10 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         if not _click(hwnd, point, img):
             return False, "click not sent (Roblox lost focus, or the window changed size)"
         img = wait_for(hwnd, "collection", 8)  # the search box does not move with the category
+        if img is None:
+            raw = screen.capture(hwnd)  # what the screen looked like instead
+            if raw is not None:
+                save("after_category", raw)
     point = None if img is None else layout.point(img, "search_box", lambda: screens.find_search_box(img))
     if point is None:
         if img is not None:

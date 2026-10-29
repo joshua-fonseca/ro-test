@@ -5,6 +5,7 @@ A wrong serial is worse than none: serials need both brackets and all OCR varian
 """
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import cv2
@@ -129,10 +130,18 @@ def _variants(crop: np.ndarray, channel=lambda img: img.max(2), height: int = 90
     return [otsu, 255 - otsu, g]
 
 
-def _ocr(crop: np.ndarray, whitelist: str | None, **kw) -> list[str]:
+_pool = ThreadPoolExecutor(max_workers=min(9, os.cpu_count() or 1))  # each OCR call runs tesseract as its own process
+
+
+def _ocr_all(images: list[np.ndarray], whitelist: str | None) -> list[str]:
+    """OCR every image at once (the calls are separate tesseract processes), results in the order given."""
     cfg = "--psm 7" + (f" -c tessedit_char_whitelist={whitelist}" if whitelist else "")
-    return [re.sub(r"\s+", "", pytesseract.image_to_string(v, config=cfg)) if whitelist
-            else pytesseract.image_to_string(v, config=cfg).strip() for v in _variants(crop, **kw)]
+    texts = _pool.map(lambda v: pytesseract.image_to_string(v, config=cfg), images)
+    return [re.sub(r"\s+", "", t) if whitelist else t.strip() for t in texts]
+
+
+def _ocr(crop: np.ndarray, whitelist: str | None, **kw) -> list[str]:
+    return _ocr_all(_variants(crop, **kw), whitelist)
 
 
 def _serial_text(area: np.ndarray) -> np.ndarray | None:
@@ -180,7 +189,8 @@ def read_serial(area: np.ndarray) -> tuple[tuple[int, bool] | None, int | None]:
     if crop is None:
         return None, None
     # Reads at one size agree even when wrong ('1]' merging into ']'); other sizes split glyphs differently.
-    texts = [_fix_one(t) for h in (60, 90, 120) for t in _ocr(crop, "#ST.0123456789[]", channel=_text_colour, height=h)]
+    variants = [v for h in (60, 90, 120) for v in _variants(crop, channel=_text_colour, height=h)]
+    texts = [_fix_one(t) for t in _ocr_all(variants, "#ST.0123456789[]")]
     # shortcut: tested on 107 saved cards (none changed by the 8-of-9 rule or _fix_one), but the 9 reads are 3 sizes x 3
     # variants of one crop, so they are not independent; a wrong strict text could reach 8. Re-check on more skins.
     top = max(set(texts), key=texts.count)  # all but one read on one strict text: the odd read out may be anything

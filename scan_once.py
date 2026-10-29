@@ -14,6 +14,7 @@ import argparse
 import logging
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +43,9 @@ UP = 10  # notches per step while going back to the top (nothing is read on the 
 CLEARLY_OVER = 1.1  # a first card this far over max_price ends the scan alone: not a borderline price
 
 
+_card_pool = ThreadPoolExecutor(max_workers=3)  # a frame shows 3-4 cards; vision has its own pool for the OCR calls
+
+
 def _over(target: Target, listing) -> bool:
     # '11.7k' is at least 11,700 (the game cuts digits off, never rounds up), so the shown price is the lowest
     return target.max_price is not None and listing.price > target.max_price
@@ -52,7 +56,7 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
     """Read every card in one capture, record it, and save a crop for each new match. No Windows calls.
 
     seen: vision.read_card's cache across frames; repeat cards are not recorded again.
-    first_only: stop reading at the first match (cards below it are not read).
+    first_only: stop at the first match (cards below it are read but not recorded).
     """
     pil = Image.fromarray(img[:, :, ::-1])  # BGR -> RGB, real captured pixels
     boxes = vision.find_cards(img)
@@ -60,8 +64,9 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
               "over_pair": False, "unsorted": False}
     over, lowest = 0, 0  # lowest: the least the cards above can cost
     earlier = len(seen) if seen is not None else 0
-    for box in boxes:
-        card = vision.read_card(img, box, seen, earlier, target.max_price)
+    # the cards of one frame are read together (each read is several tesseract processes); the loop below stays in order
+    cards = list(_card_pool.map(lambda b: vision.read_card(img, b, seen, earlier, target.max_price), boxes))
+    for card in cards:
         if not card.complete or card.wait:
             result["clipped"] += 1
         elif card.listing is None:
@@ -150,52 +155,54 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
     key = (img.shape[1], img.shape[0])
     step = _steps.get(key, STEP)
     measuring = calibrate and key not in _steps  # a notch is 125-150 px depending on the window: measure it first
-    for _ in range(max_steps):
-        if view is None:
-            total["status"] = "list_lost"
-            break
-        r = scan_visible(img, target, store, out, now, seen, first_only=total["sorted"])
-        total["frames"] += 1
-        for k in ("read", "matches", "unreadable", "lines"):
-            total[k] += r[k]
-        if r["unsorted"] and total["sorted"]:  # one lower price below a higher one and the early stops are off
-            log.warning("%s: list not sorted by price; scrolling to the end", target.skin_name)
-            total["sorted"] = False
-        if total["sorted"] and r["over_pair"]:
-            total["status"] = "stopped_at_price"
-            break
-        if total["sorted"] and r["matches"]:
-            total["status"] = "stopped_at_first_match"
-            break
-        # a banner covers cards: look again before scrolling past them
-        if vision.has_banner(img) and retries < 3:
-            retries += 1
-            time.sleep(1)
-            notches = 0
-        else:
-            retries, notches = 0, (1 if measuring else step)
-        before = img
-        img = next_frame(notches)
-        if img is None:
-            total["status"] = "focus_lost"
-            break
-        if measuring and notches:
-            px, err = _shift(before, img)
-            if err < 12 and 0.08 <= px / img.shape[0] <= 0.17:  # a believable match
-                measuring = False
-                step = _steps[key] = max(1, min(STEP, int(SAFE_STEP * img.shape[0] / px)))
-                log.info("one notch moves %d px: %d notches per step", px, step)
-            else:  # not cached: the next scan measures again; this one goes on at no more than 2 notches
-                measuring = False
-                step = min(step, 2)
-                log.warning("could not measure the notch (moved %d px, mismatch %.0f): %d notches per step", px, err, step)
-        v = _view(img)
-        if notches:
-            still = still + 1 if _same(v, view) else 0
-        view = v
-        if still >= 2:  # the last notches may still bounce, so two unchanged steps
-            total["status"] = "complete"
-            break
+    with ThreadPoolExecutor(max_workers=1) as reader:  # reads one frame while the list scrolls to the next
+        for _ in range(max_steps):
+            if view is None:
+                total["status"] = "list_lost"
+                break
+            job = reader.submit(scan_visible, img, target, store, out, now, seen, first_only=total["sorted"])
+            # a banner covers cards: look again before scrolling past them
+            if vision.has_banner(img) and retries < 3:
+                retries += 1
+                time.sleep(1)
+                notches = 0
+            else:
+                retries, notches = 0, (1 if measuring else step)
+            before = img
+            img = next_frame(notches)  # one scroll past a stop is harmless: the next frame is simply not read
+            r = job.result()
+            total["frames"] += 1
+            for k in ("read", "matches", "unreadable", "lines"):
+                total[k] += r[k]
+            if r["unsorted"] and total["sorted"]:  # one lower price below a higher one and the early stops are off
+                log.warning("%s: list not sorted by price; scrolling to the end", target.skin_name)
+                total["sorted"] = False
+            if total["sorted"] and r["over_pair"]:
+                total["status"] = "stopped_at_price"
+                break
+            if total["sorted"] and r["matches"]:
+                total["status"] = "stopped_at_first_match"
+                break
+            if img is None:
+                total["status"] = "focus_lost"
+                break
+            if measuring and notches:
+                px, err = _shift(before, img)
+                if err < 12 and 0.08 <= px / img.shape[0] <= 0.17:  # a believable match
+                    measuring = False
+                    step = _steps[key] = max(1, min(STEP, int(SAFE_STEP * img.shape[0] / px)))
+                    log.info("one notch moves %d px: %d notches per step", px, step)
+                else:  # not cached: the next scan measures again; this one goes on at no more than 2 notches
+                    measuring = False
+                    step = min(step, 2)
+                    log.warning("could not measure the notch (moved %d px, mismatch %.0f): %d notches per step", px, err, step)
+            v = _view(img)
+            if notches:
+                still = still + 1 if _same(v, view) else 0
+            view = v
+            if still >= 2:  # the last notches may still bounce, so two unchanged steps
+                total["status"] = "complete"
+                break
     return total
 
 

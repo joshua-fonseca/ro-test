@@ -175,7 +175,7 @@ def test_reads_that_disagree_for_real_are_still_refused(monkeypatch):
 def test_a_serial_needs_eight_of_nine_reads_on_one_strict_text(monkeypatch, texts, expected):
     import numpy as np
     monkeypatch.setattr(vision, "_serial_text", lambda area: np.zeros((10, 10, 3), np.uint8))
-    monkeypatch.setattr(vision, "_ocr", lambda *a, **k: [texts.pop(0) for _ in range(3)])  # 3 variants per size, 3 sizes
+    monkeypatch.setattr(vision, "_ocr_all", lambda images, whitelist: [texts.pop(0) for _ in images])  # 3 variants x 3 sizes
     assert vision.read_serial(None) == expected
 
 

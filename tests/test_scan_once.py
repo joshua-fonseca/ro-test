@@ -321,3 +321,31 @@ def test_the_step_is_chosen_from_the_measured_notch(tmp_path, monkeypatch):
 def test_a_bad_measurement_goes_on_at_two_notches_and_is_not_remembered(tmp_path, monkeypatch):
     asked, steps = _notches_asked(monkeypatch, tmp_path, bad_first_scroll=True)
     assert asked[0] == 1 and set(asked[1:]) == {2} and steps == {}
+
+
+@needs_frames
+def test_a_frame_is_read_while_the_list_scrolls_to_the_next(tmp_path, monkeypatch):
+    import scan_once
+    import threading
+    import time
+    monkeypatch.chdir(tmp_path)
+    reading, overlaps = threading.Event(), []
+
+    def slow_scan_visible(img, *a, **k):
+        reading.set()
+        time.sleep(0.3)
+        reading.clear()
+        return {"read": 0, "matches": 0, "unreadable": 0, "lines": [], "unsorted": False, "over_pair": False}
+    monkeypatch.setattr(scan_once, "scan_visible", slow_scan_visible)
+    frames = _frames(FRAMES)
+
+    def next_frame(notches):
+        if notches > 0:
+            time.sleep(0.05)  # the scroll starts a moment after the read was handed over
+            overlaps.append(reading.is_set())
+        return frames(notches)
+    target = Target("Starveil AWP", "Sniper", "Limited", 100_000, 0, True)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    r = scan_list(cv2.imread(FRAMES[0]), next_frame, target, store, tmp_path / "output", NOW, at_top=True, max_steps=3)
+    assert r["frames"] == 3 and overlaps and all(overlaps)

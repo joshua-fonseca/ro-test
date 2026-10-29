@@ -131,3 +131,8 @@ def test_a_hovered_category_button_that_merges_with_its_neighbour_still_gives_th
     assert screens.find_category_button(img, "Knife") is None
     x, y = layout.from_sibling(img, "category:Knife", lambda n: screens.find_category_button(img, n.split(":")[1]))
     assert abs(x - 0.0942 * img.shape[1]) < 2 and abs(y - 0.2703 * img.shape[0]) < 2
+
+
+def test_a_short_name_over_pink_art_with_a_rainbow_border_is_read_in_search_options():
+    img = load("sniper_arena_scanner_handoff/live_options_nya_pink.png")
+    assert screens.options_is_for(img, "Nya Reaper") and not screens.options_is_for(img, "Noire Nya Reaper")

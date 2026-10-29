@@ -181,6 +181,13 @@ def _tiles_named(img: np.ndarray, name: str, box: tuple[int, int, int, int]) -> 
                 for t in (160, 190, 220):
                     yield pytesseract.image_to_string(255 - cv2.threshold(tight, t, 255, cv2.THRESH_BINARY)[1],
                                                       config="--psm 7")
+                # The rainbow border adds stray letters beside a short name ('Nya Reaper' over pink art): trim the sides
+                i = int(0.03 * tw)
+                low = cv2.resize(region[y + int(0.84 * tall):y + tall, x + i:x + tw - i].min(2), None, fx=3, fy=3,
+                                 interpolation=cv2.INTER_CUBIC)
+                for t in (190, 220, 240):
+                    yield pytesseract.image_to_string(255 - cv2.threshold(low, t, 255, cv2.THRESH_BINARY)[1],
+                                                      config="--psm 7")
             reads = itertools.chain(reads, tight_reads())
         else:
             # Unowned tiles are dimmed (grey text ~90 on dark red) with a coloured border: keep only grey pixels
