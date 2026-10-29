@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from models import Listing, Target
-from storage import Store, add_discovered_skins, append_csv, format_match_line, listing_id, setup_run_log
+from scanner.logic.models import Listing, Target
+from scanner.logic.storage import Store, add_discovered_skins, append_csv, format_match_line, listing_id, setup_run_log
 
 NOW = datetime(2026, 10, 28, 13, 5, tzinfo=timezone.utc)
 TARGET = Target("Nocturne Marlin [Rainbow]", "Sniper", "Secret", 9000, None, True)

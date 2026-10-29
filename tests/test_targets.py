@@ -1,6 +1,6 @@
 import logging
 
-from models import Target, load_targets
+from scanner.logic.models import Target, load_targets
 
 HEADER = "skin_name,category,rarity,max_price,max_serial,enabled\n"
 

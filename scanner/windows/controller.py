@@ -10,7 +10,7 @@ import ctypes
 import sys
 import time
 
-import screen
+from scanner.windows import screen
 
 MOVE, LEFT_DOWN, LEFT_UP, WHEEL = 0x0001, 0x0002, 0x0004, 0x0800  # mouse_event flags
 KEY_UP, SHIFT, CONTROL, BACKSPACE, V = 0x0002, 0x10, 0x11, 0x08, 0x56  # keybd_event flag, virtual keys
@@ -18,6 +18,7 @@ NOTCH = 120
 
 if sys.platform == "win32":
     user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.VkKeyScanW.restype = ctypes.c_short  # a SHORT: -1 means "no such key"
 
 
 def _send(hwnd: int, event, *args) -> bool:
@@ -111,10 +112,16 @@ def _set_clipboard(text: str) -> bool:
         user32.EmptyClipboard()
         data = (text + "\0").encode("utf-16-le")
         handle = k32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
-        ptr = k32.GlobalLock(handle)
+        ptr = k32.GlobalLock(handle) if handle else None
+        if not ptr:
+            return False
         ctypes.memmove(ptr, data, len(data))
         k32.GlobalUnlock(handle)
-        return bool(user32.SetClipboardData(13, handle))  # CF_UNICODETEXT; the clipboard owns the memory now
+        if user32.SetClipboardData(13, handle):  # CF_UNICODETEXT; the clipboard owns the memory now
+            return True
+        k32.GlobalFree.argtypes = [ctypes.c_void_p]
+        k32.GlobalFree(handle)  # it was not taken, so it is still ours
+        return False
     finally:
         user32.CloseClipboard()
 

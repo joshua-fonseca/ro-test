@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from cropper import crop_card, crop_filename, save_crop, slugify, unique_path
+from scanner.logic.cropper import crop_card, crop_filename, save_crop, slugify, unique_path
 
 WHEN = datetime(2026, 10, 28, 13, 5, 0)
 

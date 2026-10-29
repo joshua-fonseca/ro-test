@@ -1,6 +1,6 @@
 import numpy as np
 
-import controller
+from scanner.windows import controller
 
 
 class FakeUser32:

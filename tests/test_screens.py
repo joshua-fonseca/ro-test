@@ -1,7 +1,7 @@
 import pytest
 
 cv2 = pytest.importorskip("cv2")
-import screens  # noqa: E402
+from scanner.reading import screens  # noqa: E402
 
 S = "sniper_arena_scanner_handoff/Screenshot 2026-10-28 "
 # name: (file, screen, search box, check button, close button); None = must not be found

@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 import pytest
 
 cv2 = pytest.importorskip("cv2")
-from models import Target  # noqa: E402
+from scanner.logic.models import Target  # noqa: E402
 from scan_once import scan_list, scan_visible  # noqa: E402
-from storage import Store  # noqa: E402
+from scanner.logic.storage import Store  # noqa: E402
 
 NOW = datetime(2026, 10, 28, 20, 0, tzinfo=timezone.utc)
 
@@ -112,9 +112,9 @@ def test_live_frames_keeps_scrolling_when_no_card_is_complete(monkeypatch):
     import scan_once
     shown = [cv2.imread(FRAMES[0])]  # what the screen shows right now
     scrolls = []
-    monkeypatch.setitem(sys.modules, "screen", types.SimpleNamespace(
+    _fake(monkeypatch, "screen", types.SimpleNamespace(
         client_rect=lambda hwnd: (100, 50, 1920, 1166), capture=lambda hwnd: shown[0]))
-    monkeypatch.setitem(sys.modules, "controller", types.SimpleNamespace(
+    _fake(monkeypatch, "controller", types.SimpleNamespace(
         scroll=lambda hwnd, x, y, n: scrolls.append((x, y, n)) or True))
     monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
     next_frame = scan_once._live_frames(1)
@@ -166,15 +166,20 @@ def _fake_game(monkeypatch, tmp_path, row="Starveil AWP,Sniper,Limited,5000,,tru
     monkeypatch.chdir(tmp_path)
     (tmp_path / "targets.csv").write_text("skin_name,category,rarity,max_price,max_serial,enabled\n" + row + "\n")
     frame = cv2.imread(FRAMES[0])
-    monkeypatch.setitem(sys.modules, "screen", types.SimpleNamespace(
+    _fake(monkeypatch, "screen", types.SimpleNamespace(
         find_roblox=lambda: 1, is_focused=lambda h: True, capture=lambda h: frame,
         client_rect=lambda h: (0, 0, 1920, 1166)))
-    monkeypatch.setitem(sys.modules, "controller", types.SimpleNamespace(scroll=lambda *a: True))
+    _fake(monkeypatch, "controller", types.SimpleNamespace(scroll=lambda *a: True))
     clicks = [] if clicks is None else clicks
-    monkeypatch.setitem(sys.modules, "navigate", types.SimpleNamespace(
+    _fake(monkeypatch, "navigate", types.SimpleNamespace(
         search_for=lambda *a, **k: nav or (True, ""), open_results=lambda *a, **k: (frame, ""),
-        close_results=lambda h: clicks.append("close") or True))
+        close_results=lambda h: clicks.append("close") or True, back_to_collection=lambda h: True))
     return clicks
+
+
+def _fake(monkeypatch, name, module):
+    """Stand in for scanner.windows.<name> (Windows only) where scan_once imports it."""
+    monkeypatch.setattr(f"scanner.windows.{name}", module, raising=False)
 
 
 def _log_statuses(tmp_path):
@@ -201,7 +206,7 @@ def test_failed_navigation_is_logged_and_closes_nothing(monkeypatch, tmp_path):
 
 
 @needs_frames
-def test_a_crash_is_logged_and_the_results_are_still_closed(monkeypatch, tmp_path):
+def test_ctrl_c_is_logged_and_sends_no_more_clicks(monkeypatch, tmp_path):
     import scan_once
 
     def boom(*a, **k):
@@ -209,7 +214,29 @@ def test_a_crash_is_logged_and_the_results_are_still_closed(monkeypatch, tmp_pat
     clicks = _fake_game(monkeypatch, tmp_path)
     monkeypatch.setattr(scan_once, "scan_list", boom)
     assert scan_once.main(["Starveil AWP", "--navigate"]) == 130  # Ctrl+C stops cleanly
-    assert _log_statuses(tmp_path) == ["interrupted"] and clicks == ["close"]
+    assert _log_statuses(tmp_path) == ["interrupted"] and clicks == []  # it was asked to stop: no closing click
+
+
+@needs_frames
+def test_a_crash_is_logged_and_the_results_are_still_closed(monkeypatch, tmp_path):
+    import scan_once
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+    clicks = _fake_game(monkeypatch, tmp_path)
+    monkeypatch.setattr(scan_once, "scan_list", boom)
+    with pytest.raises(RuntimeError):
+        scan_once.main(["Starveil AWP", "--navigate"])
+    assert _log_statuses(tmp_path) == ["error"] and clicks == ["close"]
+
+
+@needs_frames
+def test_repeats_stop_at_the_first_failure_and_zero_repeats_is_refused(monkeypatch, tmp_path, capsys):
+    import scan_once
+    clicks = _fake_game(monkeypatch, tmp_path, nav=(False, "no search box"))
+    assert scan_once.main(["Starveil AWP", "--navigate", "--repeat", "3"]) == 1
+    assert _log_statuses(tmp_path) == ["navigation_failed"]  # one try, not three
+    assert scan_once.main(["Starveil AWP", "--repeat", "0"]) == 2 and "at least 1" in capsys.readouterr().out
 
 
 @needs_frames
@@ -220,10 +247,11 @@ def test_a_repeat_reopens_the_skin_without_searching_again(monkeypatch, tmp_path
     _fake_game(monkeypatch, tmp_path)
     calls = []
     frame = cv2.imread(FRAMES[0])
-    monkeypatch.setitem(sys.modules, "navigate", types.SimpleNamespace(
+    nav = types.SimpleNamespace(
         search_for=lambda *a, **k: calls.append("search") or (True, ""),
         open_results=lambda *a, **k: calls.append("open") or (frame, ""),
-        close_results=lambda h: calls.append("close") or True))
+        close_results=lambda h: calls.append("close") or True, back_to_collection=lambda h: True)
+    _fake(monkeypatch, "navigate", nav)
     done = {"status": "stopped_at_price", "read": 1, "matches": 0, "records": 5, "frames": 1, "unreadable": 0,
             "sorted": True, "lines": []}
     monkeypatch.setattr(scan_once, "scan_list", lambda *a, **k: done)
@@ -231,7 +259,7 @@ def test_a_repeat_reopens_the_skin_without_searching_again(monkeypatch, tmp_path
     assert calls == ["search", "open", "close", "open", "close", "open", "close"]  # searched once, then only reopened
     calls.clear()  # a stale tile (the reopen fails) falls back to searching again
     opens = iter([(frame, ""), (None, "no tile")])  # the second run's quick reopen finds no tile
-    sys.modules["navigate"].open_results = lambda *a, **k: calls.append("open") or next(opens, (frame, ""))
+    nav.open_results = lambda *a, **k: calls.append("open") or next(opens, (frame, ""))
     assert scan_once.main(["Starveil AWP", "--navigate", "--repeat", "2"]) == 0
     assert calls == ["search", "open", "close", "open", "search", "open", "close"]  # the failed reopen searches again
 

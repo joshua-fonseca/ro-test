@@ -1,4 +1,4 @@
-from screen import fit_size
+from scanner.windows.screen import fit_size
 
 
 def test_largest_16_9_that_fits():

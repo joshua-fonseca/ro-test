@@ -21,13 +21,13 @@ import cv2
 import numpy as np
 from PIL import Image
 
-import vision
-from config import load_config
-from cropper import save_crop
-from matcher import matches
-from models import Target, load_targets
-from parsing import price_high
-from storage import Store, setup_run_log
+from scanner.reading import vision
+from scanner.logic.config import load_config
+from scanner.logic.cropper import save_crop
+from scanner.logic.matcher import matches
+from scanner.logic.models import Target, load_targets
+from scanner.logic.parsing import price_high
+from scanner.logic.storage import Store, setup_run_log
 
 log = logging.getLogger(__name__)
 
@@ -166,8 +166,8 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
 
 def _live_frames(hwnd: int, frames_dir: Path | None = None):
     """next_frame for scan_list on the real window: scroll over a seller name, wait for it to settle, capture."""
-    import controller
-    import screen
+    from scanner.windows import controller
+    from scanner.windows import screen
     last, point = None, None
 
     def next_frame(notches: int) -> np.ndarray | None:
@@ -211,17 +211,20 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
     store = Store(out)
     now = datetime.now().astimezone()
     store.begin_cycle(now.strftime("%Y%m%dT%H%M%S"))
-    navigated = False
+    navigated = stopped = False
     if navigate_mode:
-        import navigate
+        from scanner.windows import navigate
         probe = out / "probe"  # diagnostics: the screens it saw, to see why a step failed
         probe.mkdir(parents=True, exist_ok=True)
         save = lambda name, im: cv2.imwrite(str(probe / f"nav_{name}.png"), im)  # noqa: E731
         opened, why = (navigate.open_results(hwnd, target.skin_name, save) if searched else (None, ""))
+        if opened is None and searched:  # the quick reopen failed: back to the grid, then search again
+            navigate.back_to_collection(hwnd)
         if opened is None:  # first time, or the tile is no longer where it was: search for the skin again
             ok, why = navigate.search_for(hwnd, target.skin_name, save, category=target.category)
             opened, why = navigate.open_results(hwnd, target.skin_name, save) if ok else (None, why)
         if opened is None:
+            navigate.back_to_collection(hwnd)  # leave no dialog open
             print(f"Navigation stopped: {why}")
             store.log_scan(now, target, "navigation_failed", detail=why)
             return 1, False
@@ -260,14 +263,19 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         return (0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1), navigated
     except BaseException as e:  # a cut-short run still leaves a row in scan_log.csv
         store.log_scan(now, target, "interrupted" if isinstance(e, KeyboardInterrupt) else "error", detail=repr(e))
+        stopped = isinstance(e, KeyboardInterrupt)  # asked to stop: no more clicks
         raise
     finally:
-        if navigated and not navigate.close_results(hwnd):
-            print("Could not close the results list; close it yourself (red X) before the next run")
+        if navigated and not stopped:
+            try:
+                if not navigate.close_results(hwnd):
+                    print("Could not close the results list; close it yourself (red X) before the next run")
+            except Exception as e:  # must not hide the error that ended the scan
+                print(f"Could not close the results list ({e!r}); close it yourself (red X)")
 
 
 def main(argv: list[str] | None = None) -> int:
-    import screen  # Windows only
+    from scanner.windows import screen  # Windows only
 
     args = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     args.add_argument("skin", help="skin_name exactly as in targets.csv")
@@ -280,6 +288,9 @@ def main(argv: list[str] | None = None) -> int:
     args.add_argument("--pause", type=int, default=0, help="seconds between repeats")
     a = args.parse_args(argv)
 
+    if a.repeat < 1:
+        print("--repeat must be at least 1")
+        return 2
     cfg = load_config()
     target = next((t for t in load_targets(cfg.targets_path) if t.skin_name.casefold() == a.skin.casefold()), None)
     if target is None:
@@ -311,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             print("Stopped (Ctrl+C).")
             return 130
-        if code and code != 1:
+        if code:  # a failed scan leaves the screen in an unknown state: no further clicks
             return code
     return code
 

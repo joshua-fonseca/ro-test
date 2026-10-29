@@ -1,6 +1,6 @@
 """Does a listing satisfy a target? Pure function, no I/O."""
-from models import Listing, Target
-from parsing import price_high
+from scanner.logic.models import Listing, Target
+from scanner.logic.parsing import price_high
 
 
 def matches(target: Target, listing: Listing) -> bool:

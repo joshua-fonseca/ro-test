@@ -3,7 +3,7 @@ import glob
 import pytest
 
 cv2 = pytest.importorskip("cv2")
-import vision  # noqa: E402
+from scanner.reading import vision  # noqa: E402
 
 FIX = "sniper_arena_scanner_handoff/*{}.png"
 

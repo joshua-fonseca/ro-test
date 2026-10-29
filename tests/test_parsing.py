@@ -1,6 +1,6 @@
 import pytest
 
-from parsing import format_serial, parse_price, parse_rarity, parse_serial, price_high, price_is_approximate
+from scanner.logic.parsing import format_serial, parse_price, parse_rarity, parse_serial, price_high, price_is_approximate
 
 
 @pytest.mark.parametrize("text,expected", [

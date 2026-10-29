@@ -1,5 +1,5 @@
-from matcher import matches
-from models import Listing, Target
+from scanner.logic.matcher import matches
+from scanner.logic.models import Listing, Target
 
 
 def target(**kw):

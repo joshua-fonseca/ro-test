@@ -1,7 +1,7 @@
 """Open one skin's results from the collection screen (search, tile, Search Options, green check) and close them.
 Windows only. Start with the collection screen open (any text in the search box is cleared first). Run:
-    python navigate.py "Starveil AWP" Sniper   picks the category, searches for the skin and opens its results
-    python navigate.py --close                 closes an open results list
+    python -m scanner.windows.navigate "Starveil AWP" Sniper   picks the category, searches for the skin and opens its results
+    python -m scanner.windows.navigate --close                 closes an open results list
 Every click uses a point from screens.find_*, which only returns one on the screen it belongs to; each step waits
 for the next screen to show before going on, and anything unexpected stops with nothing more clicked.
 """
@@ -10,10 +10,10 @@ import time
 
 import cv2
 
-import controller
-import layout
-import screen
-import screens
+from scanner.windows import controller
+from scanner.reading import layout
+from scanner.windows import screen
+from scanner.reading import screens
 
 
 def wait_for(hwnd: int, state: str, seconds: float):
@@ -104,17 +104,18 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         save("search_no_cursor", img)
         return False, "no text cursor in the search box; typed nothing"
     before = img  # the grid as it was when the box was empty; it changes once the filter applies
-    controller.paste_text(hwnd, skin)  # the whole name at once
-    for _ in range(10):  # the pasted text shows within a few frames; if it never does, type it key by key instead
-        img = screen.capture(hwnd)
-        if img is None:
-            return False, "Roblox lost focus"
-        if screens.search_has_text(img):
-            break
-        time.sleep(0.05)
-    else:
-        if not controller.type_text(hwnd, skin):
-            return False, "typing stopped (Roblox lost focus, or a character has no key)"
+    if controller.paste_text(hwnd, skin):  # the whole name at once
+        for _ in range(20):  # the pasted text shows within a few frames
+            img = screen.capture(hwnd)
+            if img is None:
+                return False, "Roblox lost focus"
+            if screens.search_has_text(img):
+                break
+            time.sleep(0.05)
+        else:  # typing now could double the name if the paste lands late
+            return False, "the pasted name did not show in the search box"
+    elif not controller.type_text(hwnd, skin):  # nothing was pasted (clipboard busy): type it key by key
+        return False, "typing stopped (Roblox lost focus, or a character has no key)"
     deadline = time.time() + 2
     while time.time() < deadline:
         img = screen.capture(hwnd)
@@ -145,6 +146,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         if tile is not None:
             break
         img = wait_for(hwnd, "collection", 8)
+        img = None if img is None else _settled(hwnd, img)
         tile = None if img is None else first_tile(img)
     if tile is None:
         if img is not None:
@@ -173,6 +175,24 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     return img, ""
 
 
+def back_to_collection(hwnd: int) -> bool:
+    """Leave whatever Search Options / results screen is open (cancel or close it) and wait for the collection
+    screen. True if the collection screen is showing; nothing is clicked on any other screen."""
+    img = screen.capture(hwnd)
+    if img is None:
+        return False
+    state = screens.classify(img)
+    if state == "collection":
+        return True
+    if state == "options":
+        point = layout.point(img, "options_cancel", lambda: screens.find_options_cancel(img))
+    elif state == "results":
+        point = layout.point(img, "close_results", lambda: screens.find_close_button(img))
+    else:
+        return False
+    return point is not None and _click(hwnd, point, img) and wait_for(hwnd, "collection", 4) is not None
+
+
 def close_results(hwnd: int) -> bool:
     """Click the red X under the results list and wait for the collection screen. False if it did not work."""
     img = wait_for(hwnd, "results", 8)  # a banner can hide the list for a few seconds
@@ -184,12 +204,12 @@ def main() -> int:
     import cv2
     from pathlib import Path
 
-    from config import load_config
+    from scanner.logic.config import load_config
 
     close = "--close" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     skin = args[0] if args else "Starveil AWP"
-    category = args[1] if len(args) > 1 else None  # optional second word-group: python navigate.py "Nya Reaper" Knife
+    category = args[1] if len(args) > 1 else None  # optional second word-group: python -m scanner.windows.navigate "Nya Reaper" Knife
     hwnd = screen.find_roblox()
     if hwnd is None:
         print("Roblox window not found")

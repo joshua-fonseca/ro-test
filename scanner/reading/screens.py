@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-import vision  # sets the Tesseract path on Windows
+from scanner.reading import vision  # sets the Tesseract path on Windows
 
 Point = tuple[int, int]
 _SEARCH_BAR = np.array([68, 67, 67])  # grey of the collection search box, BGR

@@ -14,8 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from models import Listing, Target
-from parsing import format_serial
+from scanner.logic.models import Listing, Target
+from scanner.logic.parsing import format_serial
 
 log = logging.getLogger(__name__)
 

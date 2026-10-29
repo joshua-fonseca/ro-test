@@ -1,6 +1,6 @@
 import json
 
-from config import Config, load_config
+from scanner.logic.config import Config, load_config
 
 
 def test_defaults_when_no_file(tmp_path):

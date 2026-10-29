@@ -3,8 +3,8 @@ import types
 import numpy as np
 import pytest
 
-import layout
-import navigate
+from scanner.reading import layout
+from scanner.windows import navigate
 
 
 class World:
@@ -151,9 +151,6 @@ def test_unknown_category_stops_before_any_click(monkeypatch):
     assert not ok and "button" in why and w.clicks == [] and w.typed == []
 
 
-def test_typing_is_the_fallback_when_the_paste_does_not_show(monkeypatch):
-    w = World(monkeypatch, paste_fails=True)
-    assert navigate.search_for(1, "Nya Reaper") == (True, "") and w.typed == ["Nya Reaper"]
 
 
 def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
@@ -181,3 +178,23 @@ def test_a_fixed_point_that_the_finder_disagrees_with_is_not_used(monkeypatch):
     monkeypatch.setattr(navigate.screens, "find_skin_tile", lambda img, name: (900, 600))  # far from the fixed point
     navigate.open_results(1, "Nya Reaper")
     assert w.clicks[0] == (10 + 900, 20 + 600)  # the finder's point, because the layout is off
+
+
+def test_a_late_paste_is_not_typed_over(monkeypatch):
+    w = World(monkeypatch, paste_fails=True)  # paste was sent but the name never shows
+    ok, why = navigate.search_for(1, "Nya Reaper")
+    assert not ok and "did not show" in why and w.typed == []  # typing now could double the name
+
+
+def test_typing_is_used_only_when_nothing_was_pasted(monkeypatch):
+    w = World(monkeypatch)
+    monkeypatch.setattr(navigate.controller, "paste_text", lambda hwnd, text: False)  # clipboard busy
+    assert navigate.search_for(1, "Nya Reaper") == (True, "") and w.typed == ["Nya Reaper"]
+
+
+def test_back_to_collection_cancels_or_closes_whichever_is_open(monkeypatch):
+    w = World(monkeypatch, state="options")
+    assert navigate.back_to_collection(1) and w.clicks == [(410, 520)] and w.state == "collection"
+    assert navigate.back_to_collection(1) and len(w.clicks) == 1  # already there: nothing clicked
+    w = World(monkeypatch, state="results")
+    assert navigate.back_to_collection(1) and w.clicks == [(510, 620)]
