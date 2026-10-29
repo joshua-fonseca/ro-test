@@ -1,5 +1,5 @@
 """Open one skin's results from the collection screen (search, tile, Search Options, green check) and close them.
-Windows only. Start with the collection screen open and the search box EMPTY. Run:
+Windows only. Start with the collection screen open (any text in the search box is cleared first). Run:
     python navigate.py "Starveil AWP"          searches for the skin and opens its results
     python navigate.py --close                 closes an open results list
 Every click uses a point from screens.find_*, which only returns one on the screen it belongs to; each step waits
@@ -36,14 +36,24 @@ def _click(hwnd: int, point, img) -> bool:
 
 
 def search_for(hwnd: int, skin: str) -> tuple[bool, str]:
-    """Click the search box and type the skin name, but only after the text cursor shows in the box: without it
-    the letters would reach the game as key presses. The box must be empty (typed text also looks like a cursor)."""
+    """Click the search box, clear any old text, and type the skin name, but only after the text cursor shows in
+    the empty box: without it the letters would reach the game as key presses."""
     img = wait_for(hwnd, "collection", 8)  # 8 s: an in-game "X bought Y" banner can cover the screen for ~6 s
     point = None if img is None else screens.find_search_box(img)
     if point is None:
         return False, "no search box on the collection screen"
     if not _click(hwnd, point, img):
         return False, "click not sent (Roblox lost focus, or the window changed size)"
+    time.sleep(0.25)
+    img = screen.capture(hwnd)
+    if img is None:
+        return False, "Roblox lost focus"
+    if screens.search_has_text(img):  # left over from the last skin; Backspace is harmless if the box isn't focused
+        controller.backspace(hwnd, 40)
+        time.sleep(0.3)
+        img = screen.capture(hwnd)
+        if img is None or screens.search_has_text(img):
+            return False, "could not clear the search box"
     for _ in range(8):  # the cursor blinks: look for it over about 2 s
         time.sleep(0.25)
         img = screen.capture(hwnd)

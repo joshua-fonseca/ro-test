@@ -3,7 +3,7 @@
 Run with Windows Python. Without --navigate you open the skin's results in Roblox yourself, and the scan only moves
 the mouse and turns the wheel over the list (no clicks):
     python scan_once.py "Starveil AWP"
-With --navigate it starts from the collection screen (empty search box) and also clicks the search box, the skin's
+With --navigate it starts from the collection screen (old search text is cleared) and also clicks the search box, the skin's
 tile, the green check in Search Options and the red X that closes the results, and types the skin name. It never
 clicks Teleport, buy, trade or payment buttons.
     python scan_once.py "Starveil AWP" --navigate
@@ -205,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     args.add_argument("--wait", type=int, default=30, help="seconds to wait for you to click Roblox")
     args.add_argument("--navigate", action="store_true",
                       help="search for the skin, open its results, scan, then close them (start on the collection "
-                           "screen with an empty search box); clicks and types")
+                           "screen); clicks and types")
     a = args.parse_args(argv)
 
     cfg = load_config()

@@ -65,3 +65,10 @@ def test_options_box_must_show_the_requested_skin():
     assert screens.options_is_for(img, "Starveil AWP")
     assert not screens.options_is_for(img, "Nya Reaper")
     assert not screens.options_is_for(load("sniper_arena_scanner_handoff/live_collection.png"), "Starveil AWP")  # not that screen
+
+
+def test_search_box_text_is_told_from_an_empty_box_with_a_cursor():
+    base = "sniper_arena_scanner_handoff/"
+    assert screens.search_has_text(load(base + "live_search_typed.png"))
+    assert not screens.search_has_text(load(base + "live_collection.png"))
+    assert not screens.search_has_text(load(base + "live_search_focused.png"))  # empty, only the cursor

@@ -8,8 +8,10 @@ import navigate
 class World:
     """A fake game: clicks move it from screen to screen; the finders and the clock are scripted around it."""
 
-    def __init__(self, monkeypatch, state="collection", tile=True, label_ok=True, caret=True, banner_for=0):
+    def __init__(self, monkeypatch, state="collection", tile=True, label_ok=True, caret=True, banner_for=0,
+                 box_text=False, stuck_text=False):
         self.state, self.tile, self.label_ok, self.caret = state, tile, label_ok, caret
+        self.box_text, self.stuck_text, self.backspaces = box_text, stuck_text, 0  # old text in the search box
         self.banner_for = banner_for  # the first N screenshots are covered by an in-game banner ("unknown")
         self.size = (1920, 1166)
         self.clicks, self.typed, self.now = [], [], 0.0
@@ -20,6 +22,8 @@ class World:
         m.setattr(navigate.screens, "classify", self._classify)
         m.setattr(navigate.screens, "find_search_box", lambda img: (50, 60))
         m.setattr(navigate.screens, "search_caret", lambda img: self.caret)
+        m.setattr(navigate.screens, "search_has_text", lambda img: self.box_text)
+        m.setattr(navigate.controller, "backspace", self._backspace)
         m.setattr(navigate.screens, "find_skin_tile", lambda img, name: (100, 200) if self.tile else None)
         m.setattr(navigate.screens, "options_is_for", lambda img, name: self.label_ok)
         m.setattr(navigate.screens, "find_check_button", lambda img: (300, 400) if self.state == "options" else None)
@@ -32,6 +36,11 @@ class World:
             self.banner_for -= 1
             return "unknown"
         return self.state
+
+    def _backspace(self, hwnd, times):
+        self.backspaces += times
+        self.box_text = self.stuck_text
+        return True
 
     def _sleep(self, s):
         self.now += s
@@ -96,3 +105,17 @@ def test_no_click_if_the_window_changed_size_since_the_screenshot(monkeypatch):
     monkeypatch.setattr(navigate.screens, "find_skin_tile", resized_during_ocr)
     img, why = navigate.open_results(1, "Starveil AWP")
     assert img is None and "window changed size" in why and w.clicks == []
+
+
+def test_old_search_text_is_cleared_before_typing(monkeypatch):
+    w = World(monkeypatch, box_text=True)
+    assert navigate.search_for(1, "Nya Reaper") == (True, "")
+    assert w.backspaces == 40 and w.typed == ["Nya Reaper"]  # cleared first, then typed
+    w = World(monkeypatch)  # an empty box is left alone
+    navigate.search_for(1, "Nya Reaper")
+    assert w.backspaces == 0
+
+
+def test_nothing_is_typed_if_the_old_text_will_not_clear(monkeypatch):
+    w = World(monkeypatch, box_text=True, stuck_text=True)
+    assert navigate.search_for(1, "Nya Reaper") == (False, "could not clear the search box") and w.typed == []

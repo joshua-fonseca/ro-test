@@ -13,7 +13,7 @@ import time
 import screen
 
 MOVE, LEFT_DOWN, LEFT_UP, WHEEL = 0x0001, 0x0002, 0x0004, 0x0800  # mouse_event flags
-KEY_UP, SHIFT = 0x0002, 0x10  # keybd_event flag, virtual key
+KEY_UP, SHIFT, BACKSPACE = 0x0002, 0x10, 0x08  # keybd_event flag, virtual keys
 NOTCH = 120
 
 if sys.platform == "win32":
@@ -69,6 +69,21 @@ def click(hwnd: int, x: int, y: int) -> bool:
     return True
 
 
+def _tap(hwnd: int, key: int, shift: bool = False) -> bool:
+    """Press and release one key (with Shift if asked). False if focus was lost; whatever went down comes up."""
+    scan = user32.MapVirtualKeyW(key, 0)
+    try:
+        ok = (not shift or _send(hwnd, user32.keybd_event, SHIFT, 0, 0, 0)) and _send(hwnd, user32.keybd_event, key, scan, 0, 0)
+        time.sleep(0.03)
+    finally:  # always, even on Ctrl+C: nothing is left held down
+        user32.keybd_event(key, scan, KEY_UP, 0)
+        if shift:
+            user32.keybd_event(SHIFT, 0, KEY_UP, 0)
+    if ok:
+        time.sleep(0.03)
+    return ok
+
+
 def type_text(hwnd: int, text: str) -> bool:
     """Type text one key at a time into whatever has keyboard focus. False if focus was lost or a character
     has no key; keys already down are always released."""
@@ -76,16 +91,11 @@ def type_text(hwnd: int, text: str) -> bool:
         vk = user32.VkKeyScanW(ord(ch))
         if vk == -1 or vk & 0x600:  # no key, or one that needs Ctrl/Alt (AltGr layouts): never type a wrong character
             return False
-        key, shift = vk & 0xFF, bool(vk & 0x100)
-        scan = user32.MapVirtualKeyW(key, 0)
-        try:
-            ok = (not shift or _send(hwnd, user32.keybd_event, SHIFT, 0, 0, 0)) and _send(hwnd, user32.keybd_event, key, scan, 0, 0)
-            time.sleep(0.03)
-        finally:  # always, even on Ctrl+C: nothing is left held down
-            user32.keybd_event(key, scan, KEY_UP, 0)
-            if shift:
-                user32.keybd_event(SHIFT, 0, KEY_UP, 0)
-        if not ok:
+        if not _tap(hwnd, vk & 0xFF, bool(vk & 0x100)):
             return False
-        time.sleep(0.03)
     return True
+
+
+def backspace(hwnd: int, times: int) -> bool:
+    """Press Backspace `times` times. It deletes in a focused text box and does nothing in the game itself."""
+    return all(_tap(hwnd, BACKSPACE) for _ in range(times))

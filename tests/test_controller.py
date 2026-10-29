@@ -122,3 +122,13 @@ def test_points_outside_the_game_area_are_never_clicked_or_scrolled(monkeypatch)
 def test_a_character_needing_ctrl_or_alt_is_refused_not_typed_wrong(monkeypatch):
     ok, events = _run(monkeypatch, 100, lambda: controller.type_text(1, "@"))
     assert not ok and events == []
+
+
+def test_backspace_presses_and_releases_each_time(monkeypatch):
+    ok, events = _run(monkeypatch, 100, lambda: controller.backspace(1, 2))
+    assert ok and events == [("key", 8, 0), ("key", 8, 2)] * 2
+
+
+def test_backspace_stops_when_focus_is_lost(monkeypatch):
+    ok, events = _run(monkeypatch, 1, lambda: controller.backspace(1, 5))  # first press goes down, then focus is lost
+    assert not ok and events == [("key", 8, 0), ("key", 8, 2), ("key", 8, 2)]  # no 2nd press; the extra release is harmless

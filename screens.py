@@ -62,6 +62,17 @@ def search_caret(img: np.ndarray) -> bool:
     return bool(((region.min(2) > 200).sum(0) >= 10).any())  # a thin bright vertical line; stray pixels give <= 3
 
 
+def search_has_text(img: np.ndarray) -> bool:
+    """True if something is typed in the search box. Text is white: an empty box shows grey 'Search ...' and at
+    most the thin cursor (under 50 bright pixels in the live frames); 'Starveil AWP' gives over 1,600."""
+    bar = _search_bar(img)
+    if bar is None:
+        return False
+    x, y, w, h = bar
+    region = img[max(0, y - 25):y + h + 25, x:x + w]
+    return int((region.min(2) > 200).sum()) > 200
+
+
 def classify(img: np.ndarray) -> str:
     """'options' (Search Options box), 'results' (listing list), 'collection' (skin grid) or 'unknown'."""
     box = modal_box(img)
