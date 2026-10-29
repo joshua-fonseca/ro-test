@@ -124,12 +124,12 @@ def test_a_card_cut_off_a_little_is_read_but_one_cut_off_a_lot_is_not():
     base = "sniper_arena_scanner_handoff/scroll_noire_1069/"
     third = vision.find_cards(load_path(base + "001.png"))[-1]  # the third card, cut off at the bottom by 8%
     img1, img2 = load_path(base + "001.png"), load_path(base + "002.png")
-    cut = vision.read_card(img1, third, list_mid=516, max_price=10**9)
-    whole = vision.read_card(img2, vision.find_cards(img2)[1], list_mid=516, max_price=10**9)
+    cut = vision.read_card(img1, third, max_price=10**9)
+    whole = vision.read_card(img2, vision.find_cards(img2)[1], max_price=10**9)
     assert cut.complete and cut.listing and (cut.listing.price, cut.listing.serial) == (9999, 628)
     assert (whole.listing.price, whole.listing.serial) == (9999, 628)  # the same card, whole, one step later
     top = vision.find_cards(img2)[0]  # cut off at the top by 36%: the price is gone
-    assert not vision.read_card(img2, top, list_mid=516).complete
+    assert not vision.read_card(img2, top).complete
 
 
 def test_full_card_puts_back_the_cut_off_part():
@@ -147,10 +147,10 @@ def test_a_cut_off_card_with_no_readable_serial_is_left_for_the_next_frame(monke
     img = load_path(base + "001.png")
     third = vision.find_cards(img)[-1]  # cut off at the bottom
     monkeypatch.setattr(vision, "read_serial", lambda area: (None, None))
-    card = vision.read_card(img, third, list_mid=516, max_price=10**9)
+    card = vision.read_card(img, third, max_price=10**9)
     assert card.complete and card.wait and card.listing is None
     whole = vision.find_cards(img)[0]  # a whole card with the same failure is still kept (serial Unknown)
-    assert vision.read_card(img, whole, list_mid=516, max_price=10**9).listing is not None
+    assert vision.read_card(img, whole, max_price=10**9).listing is not None
 
 
 def test_a_price_read_with_a_dropped_digit_still_reads_when_the_full_text_is_read_three_times():
@@ -163,3 +163,30 @@ def test_reads_that_disagree_for_real_are_still_refused(monkeypatch):
     for texts in (["7,000", "7,000", "7,000", "9,000"], ["7,000", "7,000", "1,000"], ["11k", "11k"]):
         monkeypatch.setattr(vision, "_ocr", lambda *a, texts=texts, **k: list(texts))
         assert vision.read_price(None) is None
+
+
+@pytest.mark.parametrize("texts, expected", [
+    (["[#ST.101]"] * 9, ((101, True), 3)),
+    (["[#ST.101]"] * 8 + ["[#ST.10T]"], ((101, True), 3)),  # one odd read out
+    (["[#ST.101]"] * 7 + ["[#ST.1X]", "[#ST.1Y]"], (None, None)),  # two odd reads: not enough
+    (["[#ST.1X]"] * 8 + ["[#ST.101]"], (None, None)),  # 8 agree but not on a strict serial
+    (["[#12]"] * 8 + ["[#13]"], ((12, False), 2)),
+])
+def test_a_serial_needs_eight_of_nine_reads_on_one_strict_text(monkeypatch, texts, expected):
+    import numpy as np
+    monkeypatch.setattr(vision, "_serial_text", lambda area: np.zeros((10, 10, 3), np.uint8))
+    monkeypatch.setattr(vision, "_ocr", lambda *a, **k: [texts.pop(0) for _ in range(3)])  # 3 variants per size, 3 sizes
+    assert vision.read_serial(None) == expected
+
+
+def test_a_last_one_that_reads_as_t_or_merges_into_the_bracket_is_put_back():
+    assert [vision._fix_one(t) for t in ("[#ST.10T]", "[#ST.10]]", "[#ST.101]", "[#ST.7]", "[#ST.1T]")] == [
+        "[#ST.101]", "[#ST.101]", "[#ST.101]", "[#ST.7]", "[#ST.11]"]  # the last is a '1T' read; no other form changes
+    assert vision._fix_one("[#ST.T]") == "[#ST.T]" and vision._fix_one("[#]]") == "[#]]"  # needs a digit before it
+
+
+def test_the_serial_101_next_to_the_bracket_reads():
+    img = load_path("sniper_arena_scanner_handoff/live_nocturne_101.png")
+    cards = [(b, vision.read_card(img, b, max_price=10**9).listing) for b in vision.find_cards(img)]
+    box = next(b for b, listing in cards if listing and listing.price == 11800)
+    assert vision.read_serial(vision._sub(img, box, vision.SERIAL_BOX)) == ((101, True), 3)

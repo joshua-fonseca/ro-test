@@ -167,21 +167,29 @@ def read_stattrak(area: np.ndarray) -> bool | None:
     return True if orange >= 0.8 else False if orange <= 0.2 else None
 
 
+def _fix_one(text: str) -> str:
+    """A last '1' next to the closing bracket is read as 'T' ('[#ST.10T]') or merges into it ('[#ST.10]]'). Both are
+    impossible serials (a serial has no letter after a digit and one bracket), so only a lost '1' explains them."""
+    return re.sub(r"(?<=\d)(?:T\]|\]\])", "1]", text)
+
+
 def read_serial(area: np.ndarray) -> tuple[tuple[int, bool] | None, int | None]:
-    """((serial, stattrak), digits). The serial only if every read, at three sizes, gives the same strict
+    """((serial, stattrak), digits). The serial only if at least 8 of the 9 reads, at three sizes, give the same strict
     `[#N]` / `[#ST.N]`; else the digit count (display only) if every read has that form and the same length."""
     crop = _serial_text(area)
     if crop is None:
         return None, None
     # Reads at one size agree even when wrong ('1]' merging into ']'); other sizes split glyphs differently.
-    texts = [t for h in (60, 90, 120) for t in _ocr(crop, "#ST.0123456789[]", channel=_text_colour, height=h)]
-    # shortcut: tested on 52 serials from 4 skin families (40 read, 0 wrong; Noir Nya Reaper 12 of 15); add live
-    # captures of other skins before trusting serial-limited targets.
+    texts = [_fix_one(t) for h in (60, 90, 120) for t in _ocr(crop, "#ST.0123456789[]", channel=_text_colour, height=h)]
+    # shortcut: tested on 107 saved cards (none changed by the 8-of-9 rule or _fix_one), but the 9 reads are 3 sizes x 3
+    # variants of one crop, so they are not independent; a wrong strict text could reach 8. Re-check on more skins.
+    top = max(set(texts), key=texts.count)  # all but one read on one strict text: the odd read out may be anything
+    if texts.count(top) >= len(texts) - 1 and _SERIAL_STRICT.fullmatch(top):
+        serial = parse_serial(top)
+        return serial, len(str(serial[0]))
     if not all(_SERIAL_STRICT.fullmatch(t) for t in texts):
         return None, None
     lengths = {len(str(parse_serial(t)[0])) for t in texts}
-    if len(set(texts)) == 1:
-        return parse_serial(texts[0]), lengths.pop()
     return None, lengths.pop() if len(lengths) == 1 else None
 
 
@@ -205,7 +213,7 @@ def _is_subsequence(short: str, long: str) -> bool:
 
 
 def read_card(img: np.ndarray, box: Box, seen: list | None = None, upto: int | None = None,
-              max_price: int | None = None, list_mid: float | None = None) -> Card:
+              max_price: int | None = None) -> Card:
     """Read one card. Cards cut off too far and unreadable prices give listing=None (complete=False for the first).
     A card cut off a little by the top or bottom of the list is still read. The seller is not read: it shows
     [Loading...] for a moment and is not needed.
@@ -214,9 +222,8 @@ def read_card(img: np.ndarray, box: Box, seen: list | None = None, upto: int | N
     and comes back with repeat=True. upto: only the first `upto` entries count, so cards read from this same
     frame are never taken for repeats (two cards in one frame are always two cards).
     max_price: a card whose price is above it can never match, so its serial is not read (listing.serial=None).
-    list_mid: the middle of the list on screen, to tell a card cut off at the top from one cut off at the bottom.
     """
-    full = full_card(box, 0.48 * img.shape[0] if list_mid is None else list_mid)
+    full = full_card(box, 0.48 * img.shape[0])  # 0.48: the middle of the list on a 16:9 window
     if not is_readable(box, full):
         return Card(box, False)
     price = read_price(_sub(img, full, PRICE_BOX))
