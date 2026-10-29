@@ -8,6 +8,7 @@ buttons. Matches are printed and saved under output/. Stops by itself after 3 fa
     python main.py
 """
 import argparse
+import logging
 import sys
 import time
 from pathlib import Path
@@ -64,7 +65,11 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             for target in targets:
                 _wait_for_focus(hwnd, screen)  # pause here while you are in another window
-                code, ok = scan_once._run_once(hwnd, cfg, out, target, True, searched == target.skin_name)
+                try:
+                    code, ok = scan_once._run_once(hwnd, cfg, out, target, True, searched == target.skin_name)
+                except Exception:  # one bad read or screen must not end an unattended run: count it as a failed scan
+                    logging.getLogger(__name__).exception("%s: the scan crashed", target.skin_name)
+                    code, ok = 1, False
                 searched = target.skin_name if ok and not code else None  # after a failure, search again
                 if code and not screen.is_focused(hwnd):  # focus was lost mid-scan: not a failed screen
                     continue

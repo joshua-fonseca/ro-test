@@ -11,6 +11,7 @@ Lists are sorted cheapest first, so the scan stops at the first (cheapest) match
 max_price (see scan_list).
 """
 import argparse
+import itertools
 import logging
 import sys
 import time
@@ -32,13 +33,11 @@ from scanner.logic.storage import Store, setup_run_log
 
 log = logging.getLogger(__name__)
 
-# One notch moves the list ~150 px (measured live at 1898x1068 and on the saved frames); the list shows ~540 px and a
-# card is ~170 px, so a step must stay under ~370 px or a card is never fully visible (3 notches skipped two cards).
 # Cards are 193 px apart in a 537 px list, and a card is read while at most 5% of its top or 20% of its bottom is cut
 # off (about 127 px of it must show), so a step can be up to 537 - 127 = 410 px without skipping a card. A notch moves
-# 125 px on a 1900x1069 window: 3 notches = 375 px. (3 notches skipped cards before, when only whole cards were read.)
-# shortcut: the notch size was measured on one window size; re-measure it (and the list height) if the window changes.
-STEP = 3  # notches per step
+# 125 px on some sessions (3 notches = 375 px: fine) and 150 px on others (3 = 450 px: skips a card, 2 = 300 px is fine),
+# so STEP is only the most it will try: scan_list measures one notch at the start of a run and picks the step from it.
+STEP = 3  # most notches per step
 UP = 10  # notches per step while going back to the top (nothing is read on the way)
 CLEARLY_OVER = 1.1  # a first card this far over max_price ends the scan alone: not a borderline price
 
@@ -210,7 +209,7 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
     """next_frame for scan_list on the real window: scroll over a seller name, wait for it to settle, capture."""
     from scanner.windows import controller
     from scanner.windows import screen
-    last, point = None, None
+    last, point, frame_no = None, None, itertools.count()
 
     def next_frame(notches: int) -> np.ndarray | None:
         nonlocal last, point
@@ -224,6 +223,8 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
             if point is None or not controller.scroll(hwnd, *point, notches):
                 return None
         img = screen.capture(hwnd)
+        if img is None:
+            return None
         if notches:  # the list glides after a scroll: wait until two looks are alike, not a fixed time
             view = _view(img)
             for _ in range(12):
@@ -231,7 +232,8 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
                 cur = screen.capture(hwnd)
                 if cur is None:
                     return None
-                img, view, done = cur, _view(cur), _same(_view(cur), view)
+                v = _view(cur)
+                img, done, view = cur, _same(v, view), v
                 if done:
                     break
         for _ in range(3):  # an in-game "X bought Y" banner covers cards for a few seconds: wait it out
@@ -242,7 +244,7 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
             img = screen.capture(hwnd)
         last = img
         if frames_dir and img is not None:  # diagnostics: every frame, to check how far a step moves the list
-            cv2.imwrite(str(frames_dir / f"{len(list(frames_dir.glob('*.png'))):03d}.png"), img)
+            cv2.imwrite(str(frames_dir / f"{next(frame_no):03d}.png"), img, [cv2.IMWRITE_PNG_COMPRESSION, 1])
         return img
     return next_frame
 
@@ -255,7 +257,10 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
     store.begin_cycle(now.strftime("%Y%m%dT%H%M%S"))
     navigated = stopped = False
     if navigate_mode:
-        from scanner.windows import navigate
+        from scanner.windows import navigate, screen
+        if screen.client_rect(hwnd)[2] < cfg.min_window_width:  # before any click: the layout is only known for big windows
+            print(f"Roblox is {screen.client_rect(hwnd)[2]} px wide; at least {cfg.min_window_width} is needed")
+            return 2, False
         probe = out / "probe"  # diagnostics: the screens it saw, to see why a step failed
         probe.mkdir(parents=True, exist_ok=True)
         save = lambda name, im: cv2.imwrite(str(probe / f"nav_{name}.png"), im)  # noqa: E731

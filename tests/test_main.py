@@ -97,3 +97,18 @@ def test_a_failed_scan_makes_the_next_pass_search_again(monkeypatch, tmp_path):
     calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(1, True), (0, True)])
     assert main.main([]) == 130
     assert [c[2] for c in calls] == [False, False, True]  # (1, True) is a failure: not "still searched"
+
+
+def test_a_scan_that_crashes_counts_as_a_failure_and_the_loop_goes_on(monkeypatch, tmp_path):
+    calls, backs = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)])
+    real = scan_once._run_once
+    state = {"n": 0}
+
+    def crash_first(*a):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise ValueError("a card read blew up")
+        return real(*a)
+    monkeypatch.setattr(scan_once, "_run_once", crash_first)
+    assert main.main([]) == 130
+    assert backs == [1] and [c[2] for c in calls] == [False, True]  # cleaned up and searched again; the next good scan reopens

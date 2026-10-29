@@ -349,3 +349,18 @@ def test_a_frame_is_read_while_the_list_scrolls_to_the_next(tmp_path, monkeypatc
     store.begin_cycle("c1")
     r = scan_list(cv2.imread(FRAMES[0]), next_frame, target, store, tmp_path / "output", NOW, at_top=True, max_steps=3)
     assert r["frames"] == 3 and overlaps and all(overlaps)
+
+
+@needs_frames
+def test_live_frames_returns_none_not_a_crash_when_focus_is_lost_right_after_a_scroll(monkeypatch):
+    import types
+    import scan_once
+    shown = [cv2.imread(FRAMES[0])]
+    _fake(monkeypatch, "screen", types.SimpleNamespace(
+        client_rect=lambda hwnd: (100, 50, 1920, 1166), capture=lambda hwnd: shown[0]))
+    _fake(monkeypatch, "controller", types.SimpleNamespace(scroll=lambda hwnd, x, y, n: True))
+    monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
+    next_frame = scan_once._live_frames(1)
+    next_frame(0)
+    shown[0] = None  # the user clicked another window: the capture comes back empty
+    assert next_frame(2) is None
