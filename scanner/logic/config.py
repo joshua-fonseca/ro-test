@@ -9,9 +9,6 @@ class Config:
     window_width: int | None = None  # None = largest 16:9 size that fits its monitor (bigger reads serials better)
     window_height: int | None = None
     min_window_width: int = 1200  # real pixels; refuse to scan below this
-    initial_backward_seconds: float = 2.0  # hold S once at start to reach the E Open prompt
-    interact_hold_seconds: float = 0.1  # E press length
-    cycle_delay_seconds: float = 15.0  # wait after a completed cycle
     targets_path: str = "targets.csv"
     output_dir: str = "output"
 
