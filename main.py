@@ -1,15 +1,24 @@
-"""Scan every enabled skin in targets.csv, one after another, over and over until Ctrl+C. Windows Python.
+r"""Scan every enabled skin in targets.csv, one after another, over and over until Ctrl+C. Windows Python.
 
 Start with the collection screen open in Roblox. Each pass reads targets.csv again (so edits and enabled=false take
 effect) and scans each enabled row that has a max_price. A skin scanned twice in a row is reopened without
 searching again; a different skin is searched for. The next pass starts at once: there is no pause.
 It clicks and types the same way as `scan_once.py --navigate` and never clicks Teleport, buy, trade or payment
 buttons. Matches are printed and saved under output/. Stops by itself after 3 failed scans in a row.
-    python main.py
-    python main.py --clear-matches    first delete matches.csv and the saved match pictures
+
+Flags:
+    --wait N          seconds to wait for you to click the Roblox title bar (default 30)
+    --cycles N        stop after N passes over targets.csv (default 0 = until Ctrl+C)
+    --clear-matches   first delete matches.csv and the saved match pictures, then scan as usual
+
+Run it on Windows (it captures the screen and sends input), with Roblox open on the collection screen:
+    Windows PowerShell:  & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe \\wsl.localhost\Ubuntu\home\kkura\repos\ro-test\main.py --cycles 1
+    From WSL:            powershell.exe -c '& $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe \\wsl.localhost\Ubuntu\home\kkura\repos\ro-test\main.py'
+Stop with Ctrl+C in the window it runs in. (From WSL, Ctrl+C may leave the Windows process running: use the first form.)
 """
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -84,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
                 if failures >= MAX_FAILURES:
                     print(f"{failures} scans failed in a row; stopping. Check the screen and start again.")
                     return 1
+            print(f"Loop {passes} done" + (", trying again" if not a.cycles or passes < a.cycles else ""))
         return 0
     except KeyboardInterrupt:
         print("Stopped (Ctrl+C).")
@@ -91,4 +101,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    os.chdir(Path(__file__).parent)  # targets.csv and output/ are found next to this file, wherever it is started from
     sys.exit(main())

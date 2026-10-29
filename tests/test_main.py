@@ -120,3 +120,10 @@ def test_clear_matches_flag_clears_before_scanning(monkeypatch, tmp_path, capsys
     (tmp_path / "output" / "matches.csv").write_text("x")
     assert main.main(["--clear-matches"]) == 130
     assert not (tmp_path / "output" / "matches.csv").exists() and "Cleared matches.csv" in capsys.readouterr().out
+
+
+def test_each_full_loop_is_announced(monkeypatch, tmp_path, capsys):
+    _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)] * 2)
+    assert main.main(["--cycles", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "Loop 1 done, trying again" in out and "Loop 2 done\n" in out

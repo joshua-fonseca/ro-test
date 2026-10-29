@@ -13,6 +13,7 @@ max_price (see scan_list).
 import argparse
 import itertools
 import logging
+import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -383,4 +384,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    os.chdir(Path(__file__).parent)  # targets.csv and output/ are found next to this file, wherever it is started from
     sys.exit(main())
