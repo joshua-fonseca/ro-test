@@ -48,6 +48,9 @@ def test_caret_shows_only_in_the_focused_search_box():
     base = "sniper_arena_scanner_handoff/"
     assert not screens.search_caret(load(base + "live_collection.png"))
     assert screens.search_caret(load(base + "live_search_focused.png"))
+    # 1900x1069 window: the cursor is dimmer (~200) there; the placeholder letters must not count as a cursor
+    assert screens.search_caret(load(base + "live_search_caret_dim.png"))
+    assert not screens.search_caret(load(base + "live_search_empty_no_caret.png"))
 
 
 def test_skin_tile_is_found_only_when_its_label_matches():
@@ -72,3 +75,32 @@ def test_search_box_text_is_told_from_an_empty_box_with_a_cursor():
     assert screens.search_has_text(load(base + "live_search_typed.png"))
     assert not screens.search_has_text(load(base + "live_collection.png"))
     assert not screens.search_has_text(load(base + "live_search_focused.png"))  # empty, only the cursor
+
+
+def test_category_buttons_are_found_by_their_labels():
+    base = "sniper_arena_scanner_handoff/"
+    img = load(base + "live_collection.png")
+    found = {c: screens.find_category_button(img, c) for c in ("Sniper", "Knife", "Glove", "Charm")}
+    assert all(found.values()) and len(set(found.values())) == 4
+    assert screens.find_category_button(img, "Souvenir") is None
+    assert screens.find_category_button(load(base + "live_options.png"), "Knife") is None  # other screen: no point
+    assert screens.find_category_button(load(base + "live_search_empty_no_caret.png"), "Knife")  # 1900x1069 window
+
+
+def test_dim_unowned_tile_is_found_and_split_tiles_count_once():
+    base = "sniper_arena_scanner_handoff/"
+    assert screens.find_skin_tile(load(base + "live_knife_tiles.png"), "Nya Reaper") is not None  # dimmed, rainbow border
+    assert screens.find_skin_tile(load(base + "live_knife_tiles.png"), "Nya") is None  # a part of a name is not a hit
+    assert screens.find_skin_tile(load(base + "live_search_typed.png"), "Starveil AWP") is not None  # art splits the tile
+
+
+def test_search_options_for_a_dim_rainbow_skin_names_it():
+    img = load("sniper_arena_scanner_handoff/live_options_knife.png")
+    assert screens.options_is_for(img, "Nya Reaper") and not screens.options_is_for(img, "Starveil AWP")
+
+
+def test_a_tile_cut_off_at_the_edge_is_skipped_not_a_crash():
+    img = load("sniper_arena_scanner_handoff/live_knife_tiles.png").copy()
+    img[:, :, :] = img  # same frame; move the search area so the tile's label falls outside it
+    h, w = img.shape[:2]
+    assert screens._tiles_named(img, "Nya Reaper", (int(0.28 * w), int(0.18 * h), int(0.84 * w), int(0.28 * h))) == []

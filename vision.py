@@ -5,7 +5,6 @@ A wrong serial is worse than none: serials need both brackets and all OCR varian
 """
 import os
 import re
-from collections import Counter
 from dataclasses import dataclass
 
 import cv2
@@ -25,9 +24,7 @@ Box = tuple[int, int, int, int]  # left, top, right, bottom
 CARD_ASPECT = 4.62  # card width / height, measured on three window sizes
 # Below this card width (about a 1500-wide window) OCR agreed on wrong serials, so serials are left unreadable.
 MIN_SERIAL_CARD_WIDTH = 600  # shortcut: set from one fixture near the limit (1538 wide), retune once live captures at 1536-1700 exist
-LOADING = "[Loading...]"
 # Field boxes as fractions of the card: x0, y0, x1, y1. Serial includes both brackets.
-SELLER_BOX = (0.20, 0.08, 0.71, 0.38)
 PRICE_BOX = (0.72, 0.08, 0.895, 0.40)
 SERIAL_BOX = (0.04, 0.60, 0.22, 0.80)  # search area; the text itself is found by colour
 
@@ -41,7 +38,6 @@ _SERIAL_STRICT = re.compile(r"\[#(ST\.)?\d+\]")
 class Card:
     box: Box  # for cropper.save_crop
     complete: bool  # fully inside the list area; clipped cards are never read
-    loading: bool = False  # seller still shows [Loading...]: wait and retry
     listing: Listing | None = None
     repeat: bool = False  # already read in an earlier frame of this scroll (listing is that earlier read)
 
@@ -170,51 +166,41 @@ def read_price(card_img: np.ndarray) -> tuple[int, bool] | None:
     return parse_price(texts[0]), price_is_approximate(texts[0])
 
 
-def read_seller(card_img: np.ndarray) -> str | None:
-    """Display name with the fixed "'s stall" suffix removed; None if no two variants agree."""
-    texts = [t for t in _ocr(card_img, None) if t]
-    if not texts:
-        return None
-    text, n = Counter(texts).most_common(1)[0]
-    if n < 2:
-        return None
-    if "loading" in text.casefold():
-        return LOADING
-    return re.sub(r"\s*['’]s\s*stall\W*$", "", text).strip() or None
-
-
-def read_card(img: np.ndarray, box: Box, seen: list | None = None, upto: int | None = None) -> Card:
-    """Read one card. Clipped cards and unreadable prices/sellers give listing=None.
+def read_card(img: np.ndarray, box: Box, seen: list | None = None, upto: int | None = None,
+              max_price: int | None = None) -> Card:
+    """Read one card. Clipped cards and unreadable prices give listing=None. The seller is not read: it shows
+    [Loading...] for a moment and is not needed.
 
     seen: cards read in earlier frames of one scroll (filled here). A card already there skips the serial OCR
     and comes back with repeat=True. upto: only the first `upto` entries count, so cards read from this same
     frame are never taken for repeats (two cards in one frame are always two cards).
+    max_price: a card whose price is above it can never match, so its serial is not read (listing.serial=None).
     """
     if not _is_complete(box):
         return Card(box, False)
-    seller = read_seller(_sub(img, box, SELLER_BOX))
-    if seller == LOADING:
-        return Card(box, True, loading=True)
     price = read_price(_sub(img, box, PRICE_BOX))
-    if seller is None or price is None:
+    if price is None:
         return Card(box, True)
     area = _sub(img, box, SERIAL_BOX)
     look = cv2.resize(cv2.cvtColor(area, cv2.COLOR_BGR2GRAY), (64, 20), interpolation=cv2.INTER_AREA).astype(int)
-    for s, p, lk, old in (seen or [])[:upto]:
-        # Serial area difference on the 29 scroll frames: same card <= 0.8, other cards >= 1.2.
+    for p, lk, old in (seen or [])[:upto]:
+        # Serial area difference on the 29 scroll frames: same card <= 0.8, other cards >= 1.2 (with the seller too).
         # shortcut: animated thumbnail borders (Noir Nya Reaper) give the same card up to 2.7, so most repeats are
         # read again (slower; a differing serial read adds a row); match cards by scroll offset if scans get slow.
-        if (s, p) == (seller, price[0]) and np.abs(lk - look).mean() < 1.0:
+        if p == price[0] and np.abs(lk - look).mean() < 1.0:
             return Card(box, True, listing=old, repeat=True)
-    stattrak = read_stattrak(area)
-    big_enough = box[2] - box[0] >= MIN_SERIAL_CARD_WIDTH
-    serial, digits = read_serial(area) if big_enough else (None, None)
-    if serial and serial[1] != stattrak:  # text says ST but colour says plain, or the reverse: trust neither
-        serial = stattrak = digits = None
-    listing = Listing(price=price[0], serial=serial[0] if serial else None, stattrak=stattrak, seller=seller,
-                      price_approx=price[1], serial_digits=None if serial else digits)
+    if max_price is not None and price[0] > max_price:
+        listing = Listing(price=price[0], serial=None, stattrak=None, price_approx=price[1])
+    else:
+        stattrak = read_stattrak(area)
+        big_enough = box[2] - box[0] >= MIN_SERIAL_CARD_WIDTH
+        serial, digits = read_serial(area) if big_enough else (None, None)
+        if serial and serial[1] != stattrak:  # text says ST but colour says plain, or the reverse: trust neither
+            serial = stattrak = digits = None
+        listing = Listing(price=price[0], serial=serial[0] if serial else None, stattrak=stattrak,
+                          price_approx=price[1], serial_digits=None if serial else digits)
     if seen is not None:
-        seen.append((seller, price[0], look, listing))
+        seen.append((price[0], look, listing))
     return Card(box, True, listing=listing)
 
 

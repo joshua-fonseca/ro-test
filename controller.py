@@ -13,7 +13,7 @@ import time
 import screen
 
 MOVE, LEFT_DOWN, LEFT_UP, WHEEL = 0x0001, 0x0002, 0x0004, 0x0800  # mouse_event flags
-KEY_UP, SHIFT, BACKSPACE = 0x0002, 0x10, 0x08  # keybd_event flag, virtual keys
+KEY_UP, SHIFT, CONTROL, BACKSPACE, V = 0x0002, 0x10, 0x11, 0x08, 0x56  # keybd_event flag, virtual keys
 NOTCH = 120
 
 if sys.platform == "win32":
@@ -31,7 +31,7 @@ def _run(hwnd: int, steps) -> bool:
     for event, *args in steps:
         if not _send(hwnd, event, *args):
             return False
-        time.sleep(0.03)
+        time.sleep(0.015)
     return True
 
 
@@ -63,7 +63,7 @@ def click(hwnd: int, x: int, y: int) -> bool:
     if not _run(hwnd, _hover(x, y)) or not _send(hwnd, user32.mouse_event, LEFT_DOWN, 0, 0, 0, 0):
         return False
     try:
-        time.sleep(0.05)
+        time.sleep(0.03)
     finally:  # always, even on Ctrl+C: a button must never stay down
         user32.mouse_event(LEFT_UP, 0, 0, 0, 0)
     return True
@@ -74,13 +74,10 @@ def _tap(hwnd: int, key: int, shift: bool = False) -> bool:
     scan = user32.MapVirtualKeyW(key, 0)
     try:
         ok = (not shift or _send(hwnd, user32.keybd_event, SHIFT, 0, 0, 0)) and _send(hwnd, user32.keybd_event, key, scan, 0, 0)
-        time.sleep(0.03)
     finally:  # always, even on Ctrl+C: nothing is left held down
         user32.keybd_event(key, scan, KEY_UP, 0)
         if shift:
             user32.keybd_event(SHIFT, 0, KEY_UP, 0)
-    if ok:
-        time.sleep(0.03)
     return ok
 
 
@@ -94,6 +91,43 @@ def type_text(hwnd: int, text: str) -> bool:
         if not _tap(hwnd, vk & 0xFF, bool(vk & 0x100)):
             return False
     return True
+
+
+def _set_clipboard(text: str) -> bool:
+    """Put `text` on the clipboard (replacing what was there). False if another program has it locked."""
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.GlobalAlloc.restype, k32.GlobalAlloc.argtypes = ctypes.c_void_p, [ctypes.c_uint, ctypes.c_size_t]
+    k32.GlobalLock.restype, k32.GlobalLock.argtypes = ctypes.c_void_p, [ctypes.c_void_p]
+    k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+    user32.SetClipboardData.restype, user32.SetClipboardData.argtypes = ctypes.c_void_p, [ctypes.c_uint, ctypes.c_void_p]
+    for _ in range(10):  # the clipboard can be busy for a moment
+        if user32.OpenClipboard(None):
+            break
+        time.sleep(0.02)
+    else:
+        return False
+    try:
+        user32.EmptyClipboard()
+        data = (text + "\0").encode("utf-16-le")
+        handle = k32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
+        ptr = k32.GlobalLock(handle)
+        ctypes.memmove(ptr, data, len(data))
+        k32.GlobalUnlock(handle)
+        return bool(user32.SetClipboardData(13, handle))  # CF_UNICODETEXT; the clipboard owns the memory now
+    finally:
+        user32.CloseClipboard()
+
+
+def paste_text(hwnd: int, text: str) -> bool:
+    """Copy `text` to the clipboard and press Ctrl+V: the whole text arrives at once. False if the clipboard was
+    busy or focus was lost before the paste; Ctrl is always released."""
+    if not _set_clipboard(text):
+        return False
+    try:
+        return _send(hwnd, user32.keybd_event, CONTROL, 0, 0, 0) and _tap(hwnd, V)
+    finally:
+        user32.keybd_event(CONTROL, 0, KEY_UP, 0)
 
 
 def backspace(hwnd: int, times: int) -> bool:

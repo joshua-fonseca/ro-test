@@ -48,12 +48,13 @@ def append_csv(path: Path, fields: list[str], row: dict) -> None:
 
 
 def listing_id(target: Target, listing: Listing) -> str:
-    """Best-effort fingerprint. Serial is part of it, price is not, so a price change is the same listing.
-
-    Identical listings from one seller with no visible serial collide; that is accepted.
+    """Best-effort fingerprint. With a serial the price is not part of it, so a price change is the same listing.
+    Without one (the seller is no longer read) the price is, or every serial-less listing would look the same;
+    two serial-less listings at one price collide, which is accepted.
     """
     parts = [target.skin_name.casefold(), target.category.casefold(), listing.seller.strip().casefold(),
-             "" if listing.serial is None else str(listing.serial), str(listing.stattrak)]
+             str(listing.price) if listing.serial is None else "", "" if listing.serial is None else str(listing.serial),
+             str(listing.stattrak)]
     return hashlib.sha1("|".join(parts).encode()).hexdigest()[:12]
 
 

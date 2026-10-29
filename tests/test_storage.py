@@ -28,6 +28,8 @@ def test_listing_id_ignores_price_but_not_serial_or_seller():
     assert a != listing_id(TARGET, Listing(8700, 611, False, "Bob123"))
     assert a != listing_id(TARGET, Listing(8700, 610, True, "Bob123"))
     assert a != listing_id(TARGET, Listing(8700, 610, False, "Ann"))
+    # no serial and no seller: the price tells listings apart
+    assert listing_id(TARGET, Listing(8700, None, False)) != listing_id(TARGET, Listing(7500, None, False))
 
 
 def test_append_csv_writes_header_once(tmp_path):

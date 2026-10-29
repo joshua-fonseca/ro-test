@@ -1,12 +1,14 @@
 """Open one skin's results from the collection screen (search, tile, Search Options, green check) and close them.
 Windows only. Start with the collection screen open (any text in the search box is cleared first). Run:
-    python navigate.py "Starveil AWP"          searches for the skin and opens its results
+    python navigate.py "Starveil AWP" Sniper   picks the category, searches for the skin and opens its results
     python navigate.py --close                 closes an open results list
 Every click uses a point from screens.find_*, which only returns one on the screen it belongs to; each step waits
 for the next screen to show before going on, and anything unexpected stops with nothing more clicked.
 """
 import sys
 import time
+
+import cv2
 
 import controller
 import screen
@@ -22,8 +24,32 @@ def wait_for(hwnd: int, state: str, seconds: float):
             return None
         if screens.classify(img) == state:
             return img
-        time.sleep(0.4)
+        time.sleep(0.1)
     return None
+
+
+def _grid_change(a, b) -> float:
+    """How much the skin grid differs between two captures (mean pixel difference); 99 if the sizes differ."""
+    if a.shape != b.shape:
+        return 99.0
+    h, w = a.shape[:2]
+    grid = (slice(int(0.18 * h), int(0.82 * h)), slice(int(0.28 * w), int(0.84 * w)))
+    return float(cv2.absdiff(a[grid], b[grid]).mean())
+
+
+def _settled(hwnd: int, img, seconds: float = 3):
+    """The latest capture once the skin grid has stopped moving (two frames alike), so the slow tile reading is
+    not spent on a grid that is still narrowing; whatever the last frame was after `seconds`; None if focus is lost."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        cur = screen.capture(hwnd)
+        if cur is None:
+            return None
+        if _grid_change(cur, img) < 0.5:  # borders animate: a little change is normal
+            return cur
+        img = cur
+        time.sleep(0.05)
+    return img
 
 
 def _click(hwnd: int, point, img) -> bool:
@@ -35,46 +61,83 @@ def _click(hwnd: int, point, img) -> bool:
     return controller.click(hwnd, x0 + point[0], y0 + point[1])
 
 
-def search_for(hwnd: int, skin: str) -> tuple[bool, str]:
-    """Click the search box, clear any old text, and type the skin name, but only after the text cursor shows in
-    the empty box: without it the letters would reach the game as key presses."""
+def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: str | None = None) -> tuple[bool, str]:
+    """Pick the skin's category (Sniper, Knife...), click the search box, clear any old text, and type the skin
+    name, but only after the text cursor shows in the empty box: without it the letters would reach the game as
+    key presses."""
     img = wait_for(hwnd, "collection", 8)  # 8 s: an in-game "X bought Y" banner can cover the screen for ~6 s
+    if category and img is not None:
+        point = screens.find_category_button(img, category)
+        if point is None:
+            save("no_category", img)
+            return False, f"no {category!r} button on the collection screen"
+        if not _click(hwnd, point, img):
+            return False, "click not sent (Roblox lost focus, or the window changed size)"
+        img = wait_for(hwnd, "collection", 8)  # the search box does not move with the category
     point = None if img is None else screens.find_search_box(img)
     if point is None:
         return False, "no search box on the collection screen"
     if not _click(hwnd, point, img):
         return False, "click not sent (Roblox lost focus, or the window changed size)"
-    time.sleep(0.25)
     img = screen.capture(hwnd)
     if img is None:
         return False, "Roblox lost focus"
-    if screens.search_has_text(img):  # left over from the last skin; Backspace is harmless if the box isn't focused
+    save("search_clicked", img)
+    for _ in range(2):  # left over from the last skin; Backspace is harmless if the box isn't focused yet
+        if not screens.search_has_text(img):
+            break
         controller.backspace(hwnd, 40)
-        time.sleep(0.3)
         img = screen.capture(hwnd)
-        if img is None or screens.search_has_text(img):
-            return False, "could not clear the search box"
-    for _ in range(8):  # the cursor blinks: look for it over about 2 s
-        time.sleep(0.25)
+        if img is None:
+            return False, "Roblox lost focus"
+    if screens.search_has_text(img):
+        return False, "could not clear the search box"
+    for _ in range(16):  # the cursor blinks: look for it over about 2 s
         img = screen.capture(hwnd)
         if img is None:
             return False, "Roblox lost focus"
         if screens.search_caret(img):
             break
+        time.sleep(0.1)
     else:
+        save("search_no_cursor", img)
         return False, "no text cursor in the search box; typed nothing"
-    if not controller.type_text(hwnd, skin):
-        return False, "typing stopped (Roblox lost focus, or a character has no key)"
-    time.sleep(1.0)  # let the grid narrow: tiles move while it does, so the tile is looked for after this
+    before = img  # the grid as it was when the box was empty; it changes once the filter applies
+    controller.paste_text(hwnd, skin)  # the whole name at once
+    for _ in range(10):  # the pasted text shows within a few frames; if it never does, type it key by key instead
+        img = screen.capture(hwnd)
+        if img is None:
+            return False, "Roblox lost focus"
+        if screens.search_has_text(img):
+            break
+        time.sleep(0.05)
+    else:
+        if not controller.type_text(hwnd, skin):
+            return False, "typing stopped (Roblox lost focus, or a character has no key)"
+    deadline = time.time() + 2
+    while time.time() < deadline:
+        img = screen.capture(hwnd)
+        if img is None:
+            return False, "Roblox lost focus"
+        if _grid_change(img, before) > 2:
+            time.sleep(0.4)  # the one wait that is needed: the searched skin takes a moment to load into the grid
+            break
+        time.sleep(0.05)
     return True, ""
 
 
 def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     """(results screenshot, '') or (None, why it stopped). save(name, img) keeps diagnostics."""
     img = wait_for(hwnd, "collection", 8)
+    img = None if img is None else _settled(hwnd, img)
     if img is None:
         return None, "not on the collection screen"
     tile = screens.find_skin_tile(img, skin)
+    for _ in range(2):  # the grid is still narrowing while the name was typed: look again
+        if tile is not None:
+            break
+        img = wait_for(hwnd, "collection", 8)
+        tile = None if img is None else screens.find_skin_tile(img, skin)
     if tile is None:
         save("no_tile", img)
         return None, f"no single tile labelled {skin!r} in the grid"
@@ -112,7 +175,9 @@ def main() -> int:
     from config import load_config
 
     close = "--close" in sys.argv
-    skin = next((a for a in sys.argv[1:] if not a.startswith("--")), "Starveil AWP")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    skin = args[0] if args else "Starveil AWP"
+    category = args[1] if len(args) > 1 else None  # optional second word-group: python navigate.py "Nya Reaper" Knife
     hwnd = screen.find_roblox()
     if hwnd is None:
         print("Roblox window not found")
@@ -130,10 +195,11 @@ def main() -> int:
         print("Closed; the collection screen is back" if ok else "Could not close the results (nothing else was clicked)")
         return 0 if ok else 1
     print("Opening the results: hands off the mouse and keyboard.")
-    ok, why = search_for(hwnd, skin)
+    save = lambda name, im: cv2.imwrite(str(out / f"nav_{name}.png"), im)  # noqa: E731
+    ok, why = search_for(hwnd, skin, save, category=category)
     img = None
     if ok:
-        img, why = open_results(hwnd, skin, lambda name, im: cv2.imwrite(str(out / f"nav_{name}.png"), im))
+        img, why = open_results(hwnd, skin, save)
     print(f"Results are open ({screens.classify(img)})" if img is not None else f"Stopped: {why}")
     return 0 if img is not None else 1
 

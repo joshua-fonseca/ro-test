@@ -96,7 +96,13 @@ def test_ctrl_c_while_typing_a_capital_releases_shift_and_the_key(monkeypatch):
     monkeypatch.setattr(controller, "user32", fake, raising=False)
     monkeypatch.setattr(controller.screen, "is_focused", lambda hwnd: True, raising=False)
     monkeypatch.setattr(controller.screen, "client_rect", lambda hwnd: (0, 0, 2000, 1200), raising=False)
-    monkeypatch.setattr(controller.time, "sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt))
+    real = fake.keybd_event
+
+    def interrupted(key, scan, flags, extra):  # Ctrl+C lands right after the letter goes down
+        real(key, scan, flags, extra)
+        if key == 65 and flags == 0:
+            raise KeyboardInterrupt
+    fake.keybd_event = interrupted
     try:
         controller.type_text(1, "A")
     except KeyboardInterrupt:
@@ -132,3 +138,20 @@ def test_backspace_presses_and_releases_each_time(monkeypatch):
 def test_backspace_stops_when_focus_is_lost(monkeypatch):
     ok, events = _run(monkeypatch, 1, lambda: controller.backspace(1, 5))  # first press goes down, then focus is lost
     assert not ok and events == [("key", 8, 0), ("key", 8, 2), ("key", 8, 2)]  # no 2nd press; the extra release is harmless
+
+
+def test_paste_sets_the_clipboard_then_presses_ctrl_v_and_releases(monkeypatch):
+    copied = []
+    monkeypatch.setattr(controller, "_set_clipboard", lambda text: copied.append(text) or True)
+    ok, events = _run(monkeypatch, 100, lambda: controller.paste_text(1, "Nya Reaper"))
+    assert ok and copied == ["Nya Reaper"]
+    assert events == [("key", 0x11, 0), ("key", 0x56, 0), ("key", 0x56, 2), ("key", 0x11, 2)]  # Ctrl down, V, V up, Ctrl up
+
+
+def test_paste_sends_nothing_when_the_clipboard_is_busy_and_releases_ctrl_if_focus_is_lost(monkeypatch):
+    monkeypatch.setattr(controller, "_set_clipboard", lambda text: False)
+    ok, events = _run(monkeypatch, 100, lambda: controller.paste_text(1, "x"))
+    assert not ok and events == []
+    monkeypatch.setattr(controller, "_set_clipboard", lambda text: True)
+    ok, events = _run(monkeypatch, 1, lambda: controller.paste_text(1, "x"))  # focus gone after Ctrl went down
+    assert not ok and events[0] == ("key", 0x11, 0) and events[-1] == ("key", 0x11, 2)

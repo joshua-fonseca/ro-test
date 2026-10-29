@@ -14,7 +14,8 @@ def slugify(text: str, max_len: int = 40) -> str:
 
 
 def crop_filename(when: datetime, skin: str, price: int, seller: str) -> str:
-    return f"{when:%Y%m%d_%H%M%S}__{slugify(skin)}__price-{price}__{slugify(seller)}.png"
+    name = f"{when:%Y%m%d_%H%M%S}__{slugify(skin)}__price-{price}"
+    return name + (f"__{slugify(seller)}" if seller else "") + ".png"
 
 
 def unique_path(path: Path) -> Path:

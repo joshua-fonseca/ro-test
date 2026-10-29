@@ -24,13 +24,13 @@ def test_visible_cards_are_matched_cropped_and_logged(tmp_path, monkeypatch):
     store.begin_cycle("c1")
     r = scan_visible(img, target, store, tmp_path / "output", NOW)
 
-    assert (r["read"], r["matches"], r["records"], r["clipped"]) == (2, 1, 20, 1)
+    assert (r["read"], r["matches"], r["clipped"]) == (2, 1, 1)
     assert len(r["lines"]) == 1 and r["lines"][0].startswith("[LIMITED] [Starveil AWP] [#ST.744] [4,000] [output/")
     crops = list((tmp_path / "output" / "screenshots" / "matches").glob("*.png"))
     assert len(crops) == 1
     with open(tmp_path / "output" / "listings.csv", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert [(x["serial"], x["price"], x["matched"]) for x in rows] == [("744", "4000", "true"), ("2248", "8000", "false")]
+    assert [(x["serial"], x["price"], x["matched"]) for x in rows] == [("744", "4000", "true"), ("Unknown", "8000", "false")]  # over max_price: serial not read
 
 
 def _frames(files):
@@ -110,16 +110,18 @@ def test_live_frames_keeps_scrolling_when_no_card_is_complete(monkeypatch):
     import types
     import numpy as np
     import scan_once
-    shots = iter([cv2.imread(FRAMES[0]), np.zeros((1166, 1920, 3), np.uint8), cv2.imread(FRAMES[1])])
+    shown = [cv2.imread(FRAMES[0])]  # what the screen shows right now
     scrolls = []
     monkeypatch.setitem(sys.modules, "screen", types.SimpleNamespace(
-        client_rect=lambda hwnd: (100, 50, 1920, 1166), capture=lambda hwnd: next(shots)))
+        client_rect=lambda hwnd: (100, 50, 1920, 1166), capture=lambda hwnd: shown[0]))
     monkeypatch.setitem(sys.modules, "controller", types.SimpleNamespace(
         scroll=lambda hwnd, x, y, n: scrolls.append((x, y, n)) or True))
     monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
     next_frame = scan_once._live_frames(1)
     next_frame(0)
+    shown[0] = np.zeros((1166, 1920, 3), np.uint8)
     next_frame(3)  # the frame it gets back has no complete card (covered)
+    shown[0] = cv2.imread(FRAMES[1])
     assert next_frame(3) is not None  # still scrolls, at the same point, instead of reporting focus lost
     assert len(scrolls) == 2 and scrolls[0] == scrolls[1]
     assert scrolls[0][0] < 100 + 1352 - 0.2 * (1352 - 570)  # left of the Teleport area
@@ -170,7 +172,7 @@ def _fake_game(monkeypatch, tmp_path, row="Starveil AWP,Sniper,Limited,5000,,tru
     monkeypatch.setitem(sys.modules, "controller", types.SimpleNamespace(scroll=lambda *a: True))
     clicks = [] if clicks is None else clicks
     monkeypatch.setitem(sys.modules, "navigate", types.SimpleNamespace(
-        search_for=lambda h, s: nav or (True, ""), open_results=lambda h, s: (frame, ""),
+        search_for=lambda *a, **k: nav or (True, ""), open_results=lambda *a, **k: (frame, ""),
         close_results=lambda h: clicks.append("close") or True))
     return clicks
 
@@ -206,6 +208,43 @@ def test_a_crash_is_logged_and_the_results_are_still_closed(monkeypatch, tmp_pat
         raise KeyboardInterrupt
     clicks = _fake_game(monkeypatch, tmp_path)
     monkeypatch.setattr(scan_once, "scan_list", boom)
-    with pytest.raises(KeyboardInterrupt):
-        scan_once.main(["Starveil AWP", "--navigate"])
+    assert scan_once.main(["Starveil AWP", "--navigate"]) == 130  # Ctrl+C stops cleanly
     assert _log_statuses(tmp_path) == ["interrupted"] and clicks == ["close"]
+
+
+@needs_frames
+def test_a_repeat_reopens_the_skin_without_searching_again(monkeypatch, tmp_path):
+    import sys
+    import types
+    import scan_once
+    _fake_game(monkeypatch, tmp_path)
+    calls = []
+    frame = cv2.imread(FRAMES[0])
+    monkeypatch.setitem(sys.modules, "navigate", types.SimpleNamespace(
+        search_for=lambda *a, **k: calls.append("search") or (True, ""),
+        open_results=lambda *a, **k: calls.append("open") or (frame, ""),
+        close_results=lambda h: calls.append("close") or True))
+    done = {"status": "stopped_at_price", "read": 1, "matches": 0, "records": 5, "frames": 1, "unreadable": 0,
+            "sorted": True, "lines": []}
+    monkeypatch.setattr(scan_once, "scan_list", lambda *a, **k: done)
+    assert scan_once.main(["Starveil AWP", "--navigate", "--repeat", "3"]) == 0
+    assert calls == ["search", "open", "close", "open", "close", "open", "close"]  # searched once, then only reopened
+    calls.clear()  # a stale tile (the reopen fails) falls back to searching again
+    opens = iter([(frame, ""), (None, "no tile")])  # the second run's quick reopen finds no tile
+    sys.modules["navigate"].open_results = lambda *a, **k: calls.append("open") or next(opens, (frame, ""))
+    assert scan_once.main(["Starveil AWP", "--navigate", "--repeat", "2"]) == 0
+    assert calls == ["search", "open", "close", "open", "search", "open", "close"]  # the failed reopen searches again
+
+
+@needs_frames
+def test_a_freshly_opened_list_is_not_scrolled_up_first(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    img, calls = cv2.imread(FRAMES[0]), []
+    target = Target("Starveil AWP", "Sniper", "Limited", 1, None, True)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    scan_list(img, lambda n: calls.append(n) or img, target, store, tmp_path / "output", NOW, at_top=True)
+    assert all(n >= 0 for n in calls)  # no wheel-up steps
+    calls.clear()
+    scan_list(img, lambda n: calls.append(n) or img, target, store, tmp_path / "output", NOW)
+    assert calls[0] < 0  # an unknown position goes to the top first

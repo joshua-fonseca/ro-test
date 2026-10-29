@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 # card is ~170 px, so a step must stay under ~370 px or a card is never fully visible (3 notches skipped two cards).
 STEP = 1  # notches per step
 UP = 10  # notches per step while going back to the top (nothing is read on the way)
+CLEARLY_OVER = 1.1  # a first card this far over max_price ends the scan alone: not a borderline price
 
 
 def _over(target: Target, listing) -> bool:
@@ -51,25 +52,23 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
     """
     pil = Image.fromarray(img[:, :, ::-1])  # BGR -> RGB, real captured pixels
     boxes = vision.find_cards(img)
-    result = {"cards": len(boxes), "read": 0, "matches": 0, "loading": 0, "unreadable": 0, "clipped": 0,
-              "lines": [], "records": vision.read_record_count(img) if boxes else None, "over_pair": False,
-              "unsorted": False}
+    result = {"cards": len(boxes), "read": 0, "matches": 0, "unreadable": 0, "clipped": 0, "lines": [],
+              "over_pair": False, "unsorted": False}
     over, lowest = 0, 0  # lowest: the least the cards above can cost
     earlier = len(seen) if seen is not None else 0
     for box in boxes:
-        card = vision.read_card(img, box, seen, earlier)
+        card = vision.read_card(img, box, seen, earlier, target.max_price)
         if not card.complete:
             result["clipped"] += 1
-        elif card.loading:
-            result["loading"] += 1
-        elif card.complete and card.listing is None:
+        elif card.listing is None:
             result["unreadable"] += 1
         if card.listing is None:
             over = 0  # an unreadable card never counts toward the early stop
             continue
         listing = card.listing
-        # Early stop needs two readable cards in a row over max_price in one frame, so surely two different cards
-        over = over + 1 if _over(target, listing) else 0
+        # Early stop needs two readable cards in a row over max_price in one frame, so surely two different cards;
+        # one card clearly over (not a borderline read) is enough: the list is cheapest first
+        over = (2 if listing.price > CLEARLY_OVER * target.max_price else over + 1) if _over(target, listing) else 0
         result["over_pair"] |= over >= 2
         # Cheapest first? Checked within this frame, top to bottom: no need to recognise cards across frames
         result["unsorted"] |= price_high(listing.price, listing.price_approx) < lowest
@@ -104,18 +103,19 @@ def _same(a, b) -> bool:
 
 
 def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Path, now: datetime,
-              max_steps: int = 300) -> dict:
+              max_steps: int = 300, at_top: bool = False) -> dict:
     """Go to the top of the list, then read it down to the end or until prices pass max_price. No Windows calls.
 
+    at_top: the list was just opened, so it is already at the top: no scrolling up first.
     next_frame(notches) scrolls (down if > 0, 0 = just look again) and returns the next capture, or None when
     Roblox lost focus. status: complete (end reached), stopped_at_price, stopped_at_first_match, focus_lost,
     list_lost or max_steps. Only the cheapest match is wanted, so the scan stops at the first one; an unreadable
     card above it is skipped, not waited for.
     """
-    total = {"read": 0, "matches": 0, "unreadable": 0, "loading": 0, "lines": [], "frames": 0,
+    total = {"read": 0, "matches": 0, "unreadable": 0, "lines": [], "frames": 0,
              "records": vision.read_record_count(img), "sorted": True, "status": "max_steps"}
     view, still = _view(img), 0
-    for _ in range(max_steps):  # start from the top so the first card is the cheapest
+    for _ in range(0 if at_top else max_steps):  # start from the top so the first card is the cheapest
         img = next_frame(-UP)
         if img is None:
             return {**total, "status": "focus_lost"}
@@ -143,13 +143,12 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
         if total["sorted"] and r["matches"]:
             total["status"] = "stopped_at_first_match"
             break
-        # a card still says [Loading...] or a banner covers cards: look again before scrolling past them
-        if (r["loading"] or vision.has_banner(img)) and retries < 3:
+        # a banner covers cards: look again before scrolling past them
+        if vision.has_banner(img) and retries < 3:
             retries += 1
             time.sleep(1)
             notches = 0
         else:
-            total["loading"] += r["loading"]
             retries, notches = 0, STEP
         img = next_frame(notches)
         if img is None:
@@ -175,15 +174,24 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
         nonlocal last, point
         if notches:
             cards = [b for b in vision.find_cards(last) if vision._is_complete(b)] if last is not None else []
-            if cards:  # none (banner, loading): keep the last point; a list that is really gone ends as list_lost
+            if cards:  # none (banner): keep the last point; a list that is really gone ends as list_lost
                 l, t, r, b = cards[0]
                 x0, y0 = screen.client_rect(hwnd)[:2]
                 # 35% across is the seller name; Teleport is in the right 20% of every card
                 point = x0 + l + int(0.35 * (r - l)), y0 + t + int(0.23 * (b - t))
             if point is None or not controller.scroll(hwnd, *point, notches):
                 return None
-            time.sleep(0.4)  # let the list settle
         img = screen.capture(hwnd)
+        if notches:  # the list glides after a scroll: wait until two looks are alike, not a fixed time
+            view = _view(img)
+            for _ in range(12):
+                time.sleep(0.05)
+                cur = screen.capture(hwnd)
+                if cur is None:
+                    return None
+                img, view, done = cur, _view(cur), _same(_view(cur), view)
+                if done:
+                    break
         for _ in range(3):  # an in-game "X bought Y" banner covers cards for a few seconds: wait it out
             if img is None or not vision.has_banner(img):
                 break
@@ -197,6 +205,67 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
     return next_frame
 
 
+def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: bool) -> tuple[int, bool]:
+    """One scan of `target`. With navigate_mode it opens the results first (straight from the grid if `searched`:
+    the skin is still searched from the last run) and closes them after. (exit code, skin is still searched)."""
+    store = Store(out)
+    now = datetime.now().astimezone()
+    store.begin_cycle(now.strftime("%Y%m%dT%H%M%S"))
+    navigated = False
+    if navigate_mode:
+        import navigate
+        probe = out / "probe"  # diagnostics: the screens it saw, to see why a step failed
+        probe.mkdir(parents=True, exist_ok=True)
+        save = lambda name, im: cv2.imwrite(str(probe / f"nav_{name}.png"), im)  # noqa: E731
+        opened, why = (navigate.open_results(hwnd, target.skin_name, save) if searched else (None, ""))
+        if opened is None:  # first time, or the tile is no longer where it was: search for the skin again
+            ok, why = navigate.search_for(hwnd, target.skin_name, save, category=target.category)
+            opened, why = navigate.open_results(hwnd, target.skin_name, save) if ok else (None, why)
+        if opened is None:
+            print(f"Navigation stopped: {why}")
+            store.log_scan(now, target, "navigation_failed", detail=why)
+            return 1, False
+        navigated = True
+    try:
+        frames_dir = Path(cfg.output_dir) / "scan_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for old in frames_dir.glob("*.png"):  # only the latest run's frames are kept
+            old.unlink()
+        next_frame = _live_frames(hwnd, frames_dir)
+        img = next_frame(0)
+        if img is None:
+            print("Roblox is not in front (or minimized); nothing captured")
+            return 2, navigated
+        if img.shape[1] < cfg.min_window_width:
+            print(f"Roblox is {img.shape[1]} px wide; at least {cfg.min_window_width} is needed")
+            return 2, navigated
+
+        Image.fromarray(img[:, :, ::-1]).save(out / "last_capture.png")  # diagnostics: what the scan saw
+        if not any(vision._is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
+            print("No results list on screen; nothing recorded")
+            store.log_scan(now, target, "no_results_visible")
+            return 1, navigated
+        print("Scrolling the list: hands off the mouse; click another window to stop.")
+        r = scan_list(img, next_frame, target, store, out, now, at_top=navigated)
+        if r["status"] == "complete":
+            store.end_cycle()  # only a full scroll saw every listing; an early stop must not mark the rest unseen
+        store.log_scan(now, target, r["status"], r["read"], r["matches"],
+                       f"records_found={r['records']} frames={r['frames']} unreadable_reads={r['unreadable']}"
+                       f" sorted={r['sorted']}")
+        for line in r["lines"]:
+            print(line)
+        print(f"{r['status']}: {r['read']} listing(s) read, {r['matches']} match(es); records found: {r['records']}"
+              + (f"; {r['unreadable']} unreadable card read(s)" if r["unreadable"] else "")
+              + ("" if r["sorted"] else "; list was not sorted by price, scrolled to the end"))
+        return (0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1), navigated
+    except BaseException as e:  # a cut-short run still leaves a row in scan_log.csv
+        store.log_scan(now, target, "interrupted" if isinstance(e, KeyboardInterrupt) else "error", detail=repr(e))
+        raise
+    finally:
+        if navigated and not navigate.close_results(hwnd):
+            print("Could not close the results list; close it yourself (red X) before the next run")
+
+
 def main(argv: list[str] | None = None) -> int:
     import screen  # Windows only
 
@@ -206,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
     args.add_argument("--navigate", action="store_true",
                       help="search for the skin, open its results, scan, then close them (start on the collection "
                            "screen); clicks and types")
+    args.add_argument("--repeat", type=int, default=1,
+                      help="scan this many times; with --navigate a repeat reopens the same skin without searching again")
+    args.add_argument("--pause", type=int, default=0, help="seconds between repeats")
     a = args.parse_args(argv)
 
     cfg = load_config()
@@ -230,59 +302,18 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(0.5)
     out = Path(cfg.output_dir)
     setup_run_log(out)
-    store = Store(out)
-    now = datetime.now().astimezone()
-    store.begin_cycle(now.strftime("%Y%m%dT%H%M%S"))
-    navigated = False
-    if a.navigate:
-        import navigate
-        ok, why = navigate.search_for(hwnd, target.skin_name)
-        opened = navigate.open_results(hwnd, target.skin_name)[0] if ok else None
-        if opened is None:
-            why = why or "the results did not open"
-            print(f"Navigation stopped: {why}")
-            store.log_scan(now, target, "navigation_failed", detail=why)
-            return 1
-        navigated = True
-    try:
-        frames_dir = Path(cfg.output_dir) / "scan_frames"
-        frames_dir.mkdir(parents=True, exist_ok=True)
-        for old in frames_dir.glob("*.png"):  # only the latest run's frames are kept
-            old.unlink()
-        next_frame = _live_frames(hwnd, frames_dir)
-        img = next_frame(0)
-        if img is None:
-            print("Roblox is not in front (or minimized); nothing captured")
-            return 2
-        if img.shape[1] < cfg.min_window_width:
-            print(f"Roblox is {img.shape[1]} px wide; at least {cfg.min_window_width} is needed")
-            return 2
-
-        Image.fromarray(img[:, :, ::-1]).save(out / "last_capture.png")  # diagnostics: what the scan saw
-        if not any(vision._is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
-            print("No results list on screen; nothing recorded")
-            store.log_scan(now, target, "no_results_visible")
-            return 1
-        print("Scrolling the list: hands off the mouse; click another window to stop.")
-        r = scan_list(img, next_frame, target, store, out, now)
-        if r["status"] == "complete":
-            store.end_cycle()  # only a full scroll saw every listing; an early stop must not mark the rest unseen
-        store.log_scan(now, target, r["status"], r["read"], r["matches"],
-                       f"records_found={r['records']} frames={r['frames']} unreadable_reads={r['unreadable']}"
-                       f" loading={r['loading']} sorted={r['sorted']}")
-        for line in r["lines"]:
-            print(line)
-        print(f"{r['status']}: {r['read']} listing(s) read, {r['matches']} match(es); records found: {r['records']}"
-              + (f"; {r['loading']} still loading when passed" if r["loading"] else "")
-              + (f"; {r['unreadable']} unreadable card read(s)" if r["unreadable"] else "")
-              + ("" if r["sorted"] else "; list was not sorted by price, scrolled to the end"))
-        return 0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1
-    except BaseException as e:  # a cut-short run still leaves a row in scan_log.csv
-        store.log_scan(now, target, "interrupted" if isinstance(e, KeyboardInterrupt) else "error", detail=repr(e))
-        raise
-    finally:
-        if navigated and not navigate.close_results(hwnd):
-            print("Could not close the results list; close it yourself (red X) before the next run")
+    searched = False
+    for i in range(a.repeat):
+        if i:
+            time.sleep(a.pause)
+        try:
+            code, searched = _run_once(hwnd, cfg, out, target, a.navigate, searched)
+        except KeyboardInterrupt:
+            print("Stopped (Ctrl+C).")
+            return 130
+        if code and code != 1:
+            return code
+    return code
 
 
 if __name__ == "__main__":

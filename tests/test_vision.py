@@ -74,13 +74,20 @@ def test_no_cards_on_blank_image():
     assert vision.find_cards(np.zeros((300, 500, 3), np.uint8)) == []
 
 
-def test_loading_seller_is_not_recorded():
+def test_a_loading_seller_does_not_matter():
     files = glob.glob("sniper_arena_scanner_handoff/loading_*.png")
     if not files:
         pytest.skip("fixture screenshots missing")
     cards = [c for c in vision.read_cards(cv2.imread(files[0])) if c.complete]
-    assert any(c.loading for c in cards)
-    assert all(c.listing is None for c in cards if c.loading)
+    assert any(c.listing for c in cards)  # the seller is not read, so [Loading...] no longer blocks a card
+
+
+def test_a_card_over_max_price_skips_its_serial():
+    img = load("125355")
+    box = next(b for b in vision.find_cards(img) if vision._is_complete(b))
+    full = vision.read_card(img, box).listing
+    over = vision.read_card(img, box, max_price=full.price - 1).listing
+    assert over.price == full.price and over.serial is None  # never read: it cannot match
 
 
 def test_small_window_leaves_serials_unreadable():

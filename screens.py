@@ -59,7 +59,9 @@ def search_caret(img: np.ndarray) -> bool:
         return False
     x, y, w, h = bar
     region = img[max(0, y - 25):y + h + 25, x:x + int(0.35 * w)]
-    return bool(((region.min(2) > 200).sum(0) >= 10).any())  # a thin bright vertical line; stray pixels give <= 3
+    # The cursor is a thin line a little taller than the bar (35 px on a 26 px bar) and only ~200 bright at some
+    # sizes; the grey "Search ..." letters are shorter (20 px), so a column taller than the bar is the cursor.
+    return bool(((region.min(2) > 150).sum(0) >= 1.1 * h).any())
 
 
 def search_has_text(img: np.ndarray) -> bool:
@@ -74,21 +76,20 @@ def search_has_text(img: np.ndarray) -> bool:
 
 
 def classify(img: np.ndarray) -> str:
-    """'options' (Search Options box), 'results' (listing list), 'collection' (skin grid) or 'unknown'."""
+    """'options' (Search Options box), 'results' (listing list), 'collection' (skin grid) or 'unknown'.
+
+    Colour and size only, no OCR (the old text check took 0.3 s a call): the collection screen is the only one with
+    the search bar showing; the Search Options box is a small modal (about 40% of the height) and the results
+    list a big one (65-70%). The finders below still insist on their own screen's buttons before giving a point.
+    """
+    h, w = img.shape[:2]
+    bar = _search_bar(img)
+    if bar is not None and bar[1] > 0.8 * h:  # the real bar sits low; a grey strip inside the results list does not
+        return "collection"
     box = modal_box(img)
-    if box is None:
+    if box is None or box[2] < 0.3 * w:  # no modal, or only a speck of the background colour (the game world)
         return "unknown"
-    x, y, w, h = box
-    band = img[y:y + int(0.7 * h), x:x + w]
-    grey = cv2.cvtColor(band, cv2.COLOR_BGR2GRAY)
-    grey = cv2.resize(grey, None, fx=2000 / band.shape[1], fy=2000 / band.shape[1])
-    text = pytesseract.image_to_string(255 - cv2.threshold(grey, 170, 255, cv2.THRESH_BINARY)[1], config="--psm 6")
-    text = " ".join(text.split()).casefold()
-    if "search options" in text:
-        return "options"
-    if "records found" in text:
-        return "results"
-    return "collection" if _search_box(img) else "unknown"
+    return "options" if box[3] < 0.5 * img.shape[0] else "results"
 
 
 def find_search_box(img: np.ndarray) -> Point | None:
@@ -127,24 +128,47 @@ def _letters(text: str) -> str:
     return "".join(ch for ch in text.casefold() if ch.isalnum())
 
 
+def _trim(text: str) -> str:
+    """Drop stray one-symbol words at the ends of a read ('1 Nya Reaper' -> 'Nya Reaper'): border bits read as symbols."""
+    words = text.split()
+    while words and len(words[0]) == 1 and not words[0].isalpha():
+        words.pop(0)
+    while words and len(words[-1]) == 1 and not words[-1].isalpha():
+        words.pop()
+    return " ".join(words)
+
+
 def _tiles_named(img: np.ndarray, name: str, box: tuple[int, int, int, int]) -> list[Point]:
     """Centres (whole-image coordinates) of the red skin tiles inside box = (x0, y0, x1, y1) whose label reads
     exactly `name`. A doubtful read is not a hit: a wrong skin must never be opened."""
     h, w = img.shape[:2]
     x0, y0, x1, y1 = box
     region = img[y0:y1, x0:x1]
-    red = ((region[..., 2].astype(int) > 90) & (region[..., 1] < 45) & (region[..., 0] < 45)).astype(np.uint8)
+    red = ((region[..., 2].astype(int) > 40) & (region[..., 1] < 45) & (region[..., 0] < 45)).astype(np.uint8)  # unowned tiles are dark red (~60)
     red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
     hits = []
     for st, c in _components(red, int(0.0025 * w * h)):
         x, y, tw, th = st[:4]
-        label = region[y + int(0.7 * th):y + th, x:x + tw]  # the name sits along the bottom of the tile
-        grey = cv2.resize(label.min(2), None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-        # Gun art leaks stray letters at some thresholds ('Starveil AWP in'), so try a few and need an exact read
-        reads = (pytesseract.image_to_string(255 - cv2.threshold(grey, t, 255, cv2.THRESH_BINARY)[1], config="--psm 7")
-                 for t in (200, 220, 240))
-        if any(_letters(text) == _letters(name) for text in reads):
-            hits.append((x0 + int(c[0]), y0 + int(c[1])))
+        tall = max(th, tw)  # tiles are square; the red part can stop short of the label (dark art)
+        label = region[y + int(0.7 * tall):y + tall, x:x + tw]  # the name sits along the bottom of the tile
+        if y + tall > region.shape[0]:  # tile cut off by the edge of the search area (grid still moving): not readable yet
+            continue
+        owned = np.median(region[y:y + tall, x:x + tw, 2]) > 90  # owned tiles are bright red, unowned ones dark (~60)
+        if owned:
+            # Gun art leaks stray letters at some thresholds ('Starveil AWP in'), so try a few and need an exact read
+            grey = cv2.resize(label.min(2), None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+            reads = (pytesseract.image_to_string(255 - cv2.threshold(grey, t, 255, cv2.THRESH_BINARY)[1], config="--psm 7")
+                     for t in (200, 220, 240))
+        else:
+            # Unowned tiles are dimmed (grey text ~90 on dark red) with a coloured border: keep only grey pixels
+            reads = (pytesseract.image_to_string(255 - cv2.resize(
+                ((d.max(2) - d.min(2) < 25) & (d.min(2) > 40)).astype(np.uint8) * 255, None, fx=3, fy=3,
+                interpolation=cv2.INTER_CUBIC), config="--psm 7")
+                for d in (region[y + int(0.78 * tall):y + tall, x + inset:x + tw - inset].astype(int) for inset in (12, 16)))
+        pt = (x0 + int(c[0]), y0 + int(c[1]))
+        if any(_letters(_trim(text)) == _letters(name) for text in reads) and not any(  # art can split one tile in two
+                abs(pt[0] - hx) < tw and abs(pt[1] - hy) < tw for hx, hy in hits):
+            hits.append(pt)
     return hits
 
 
@@ -163,3 +187,24 @@ def options_is_for(img: np.ndarray, name: str) -> bool:
         return False
     x, y, w, h = modal_box(img)
     return len(_tiles_named(img, name, (x, y, x + w, y + h // 2))) == 1
+
+
+def find_category_button(img: np.ndarray, category: str) -> Point | None:
+    """Centre of the blue category button (Sniper, Knife, Glove, Charm) down the left side of the collection
+    screen whose label reads exactly `category`; None on any other screen or if not exactly one."""
+    if classify(img) != "collection":
+        return None
+    h, w = img.shape[:2]
+    x0, y0 = 0, int(0.1 * h)
+    strip = img[y0:int(0.55 * h), :int(0.16 * w)].astype(int)
+    blue = (strip[..., 2] < 12) & (strip[..., 0] > 60) & (strip[..., 0] > 1.3 * strip[..., 1])  # flat blue or its darker top
+    blue = cv2.morphologyEx(blue.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    hits = []
+    for st, c in _components(blue, int(0.002 * w * h)):
+        x, y, bw, bh = st[:4]
+        label = strip[y:y + bh, x + bw // 3:x + bw].astype(np.uint8)  # the icon sits on the left third
+        grey = cv2.resize(label.min(2), None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        text = pytesseract.image_to_string(255 - cv2.threshold(grey, 220, 255, cv2.THRESH_BINARY)[1], config="--psm 7")
+        if _letters(text) == _letters(category):
+            hits.append((x0 + int(c[0]), y0 + int(c[1])))
+    return hits[0] if len(hits) == 1 else None
