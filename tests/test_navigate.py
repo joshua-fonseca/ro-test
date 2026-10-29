@@ -3,6 +3,7 @@ import types
 import numpy as np
 import pytest
 
+import layout
 import navigate
 
 
@@ -10,16 +11,17 @@ class World:
     """A fake game: clicks move it from screen to screen; the finders and the clock are scripted around it."""
 
     def __init__(self, monkeypatch, state="collection", tile=True, label_ok=True, caret=True, banner_for=0,
-                 box_text=False, stuck_text=False, paste_fails=False):
+                 box_text=False, stuck_text=False, paste_fails=False, size=(1920, 1166)):
         self.state, self.tile, self.label_ok, self.caret = state, tile, label_ok, caret
         self.box_text, self.stuck_text, self.backspaces = box_text, stuck_text, 0  # old text in the search box
         self.banner_for = banner_for  # the first N screenshots are covered by an in-game banner ("unknown")
-        self.size = (1920, 1166)
+        self.size = size
+        layout._agreed.clear()
         self.clicks, self.typed, self.pasted, self.now = [], [], [], 0.0
         self.paste_fails = paste_fails
         m = monkeypatch
         m.setattr(navigate, "time", types.SimpleNamespace(time=lambda: self.now, sleep=self._sleep))
-        blank = np.zeros((1166, 1920, 3), np.uint8)
+        blank = np.zeros((size[1], size[0], 3), np.uint8)
         m.setattr(navigate.screen, "capture", lambda hwnd: blank, raising=False)
         m.setattr(navigate.screen, "client_rect", lambda hwnd: (10, 20, *self.size), raising=False)
         m.setattr(navigate.screens, "classify", self._classify)
@@ -31,6 +33,7 @@ class World:
         m.setattr(navigate.screens, "find_skin_tile", lambda img, name: (100, 200) if self.tile else None)
         m.setattr(navigate.screens, "options_is_for", lambda img, name: self.label_ok)
         m.setattr(navigate.screens, "find_check_button", lambda img: (300, 400) if self.state == "options" else None)
+        m.setattr(navigate.screens, "find_options_cancel", lambda img: (400, 500) if self.state == "options" else None)
         m.setattr(navigate.screens, "find_close_button", lambda img: (500, 600) if self.state == "results" else None)
         m.setattr(navigate.controller, "click", self._click)
         m.setattr(navigate.controller, "type_text", lambda hwnd, text: self.typed.append(text) or True)
@@ -57,7 +60,8 @@ class World:
 
     def _click(self, hwnd, x, y):
         self.clicks.append((x, y))
-        self.state = {(110, 220): "options", (310, 420): "results", (510, 620): "collection"}.get((x, y), self.state)
+        self.state = {(110, 220): "options", (310, 420): "results", (510, 620): "collection",
+                                           (410, 520): "collection"}.get((x, y), self.state)
         return True
 
 
@@ -86,7 +90,8 @@ def test_no_tile_means_no_click(monkeypatch):
 def test_search_options_for_another_skin_never_gets_the_check(monkeypatch):
     w = World(monkeypatch, label_ok=False)
     img, why = navigate.open_results(1, "Nya Reaper")
-    assert img is None and "not for" in why and w.clicks == [(110, 220)]  # the tile only, never the green check
+    assert img is None and "not for" in why
+    assert w.clicks == [(110, 220), (410, 520)] and w.state == "collection"  # the tile, then cancel: never the green check
 
 
 def test_stops_when_search_options_never_opens(monkeypatch):
@@ -149,3 +154,30 @@ def test_unknown_category_stops_before_any_click(monkeypatch):
 def test_typing_is_the_fallback_when_the_paste_does_not_show(monkeypatch):
     w = World(monkeypatch, paste_fails=True)
     assert navigate.search_for(1, "Nya Reaper") == (True, "") and w.typed == ["Nya Reaper"]
+
+
+def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
+    w = World(monkeypatch, size=(1900, 1069))
+    asked = []
+    monkeypatch.setattr(navigate.screens, "find_skin_tile", lambda img, name: asked.append(name) or (614, 274))
+    monkeypatch.setattr(navigate.screens, "find_check_button", lambda img: (1036, 725))
+    steps = iter(["options", "results"] * 2)
+
+    def click(hwnd, x, y):  # whatever the point, the game moves on one screen
+        w.clicks.append((x, y))
+        w.state = next(steps)
+        return True
+    monkeypatch.setattr(navigate.controller, "click", click)
+    assert navigate.open_results(1, "Nya Reaper")[0] is not None
+    first = w.clicks[:]
+    w.state = "collection"
+    assert navigate.open_results(1, "Nya Reaper")[0] is not None
+    assert asked == ["Nya Reaper"]  # the finder was only asked the first time
+    assert w.clicks[2:] == first and first[0] == (10 + 614, 20 + 274) and first[1] == (10 + 1036, 20 + 725)
+
+
+def test_a_fixed_point_that_the_finder_disagrees_with_is_not_used(monkeypatch):
+    w = World(monkeypatch, size=(1900, 1069))
+    monkeypatch.setattr(navigate.screens, "find_skin_tile", lambda img, name: (900, 600))  # far from the fixed point
+    navigate.open_results(1, "Nya Reaper")
+    assert w.clicks[0] == (10 + 900, 20 + 600)  # the finder's point, because the layout is off

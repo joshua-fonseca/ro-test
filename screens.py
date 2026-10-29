@@ -110,6 +110,19 @@ def find_check_button(img: np.ndarray) -> Point | None:
     return x + int(found[0][1][0]), y + int(found[0][1][1])
 
 
+def find_options_cancel(img: np.ndarray) -> Point | None:
+    """Red X at the bottom of Search Options: closes it without opening the results. None on any other screen."""
+    if classify(img) != "options":
+        return None
+    x, y, w, h = modal_box(img)
+    box = img[y:y + h, x:x + w].astype(int)
+    red = (box[..., 2] > 150) & (box[..., 1] < 60) & (box[..., 0] < 60)
+    found = [(s, c) for s, c in _components(red, int(0.0005 * w * h)) if s[2] > s[3] and s[1] > 0.7 * h]
+    if len(found) != 1:
+        return None
+    return x + int(found[0][1][0]), y + int(found[0][1][1])
+
+
 def find_close_button(img: np.ndarray) -> Point | None:
     """Red X at the bottom of the results list. None on any other screen."""
     if classify(img) != "results":

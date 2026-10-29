@@ -11,6 +11,7 @@ import time
 import cv2
 
 import controller
+import layout
 import screen
 import screens
 
@@ -67,14 +68,14 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
     key presses."""
     img = wait_for(hwnd, "collection", 8)  # 8 s: an in-game "X bought Y" banner can cover the screen for ~6 s
     if category and img is not None:
-        point = screens.find_category_button(img, category)
+        point = layout.point(img, f"category:{category}", lambda: screens.find_category_button(img, category))
         if point is None:
             save("no_category", img)
             return False, f"no {category!r} button on the collection screen"
         if not _click(hwnd, point, img):
             return False, "click not sent (Roblox lost focus, or the window changed size)"
         img = wait_for(hwnd, "collection", 8)  # the search box does not move with the category
-    point = None if img is None else screens.find_search_box(img)
+    point = None if img is None else layout.point(img, "search_box", lambda: screens.find_search_box(img))
     if point is None:
         return False, "no search box on the collection screen"
     if not _click(hwnd, point, img):
@@ -127,19 +128,27 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
 
 
 def open_results(hwnd: int, skin: str, save=lambda name, img: None):
-    """(results screenshot, '') or (None, why it stopped). save(name, img) keeps diagnostics."""
+    """(results screenshot, '') or (None, why it stopped). save(name, img) keeps diagnostics.
+
+    After a search the skin is the first tile of the grid. Search Options must then show that skin's name before the
+    green check is clicked: if it shows another skin, Search Options is cancelled and nothing is opened.
+    """
     img = wait_for(hwnd, "collection", 8)
     img = None if img is None else _settled(hwnd, img)
     if img is None:
         return None, "not on the collection screen"
-    tile = screens.find_skin_tile(img, skin)
+
+    def first_tile(img):
+        return layout.point(img, "first_tile", lambda: screens.find_skin_tile(img, skin))
+    tile = first_tile(img)
     for _ in range(2):  # the grid is still narrowing while the name was typed: look again
         if tile is not None:
             break
         img = wait_for(hwnd, "collection", 8)
-        tile = None if img is None else screens.find_skin_tile(img, skin)
+        tile = None if img is None else first_tile(img)
     if tile is None:
-        save("no_tile", img)
+        if img is not None:
+            save("no_tile", img)
         return None, f"no single tile labelled {skin!r} in the grid"
     if not _click(hwnd, tile, img):
         return None, "click not sent (Roblox lost focus, or the window changed size)"
@@ -148,8 +157,11 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         return None, "Search Options did not open after clicking the tile"
     save("options", img)
     if not screens.options_is_for(img, skin):  # a click on a moved tile can open another skin
+        cancel = layout.point(img, "options_cancel", lambda: screens.find_options_cancel(img))
+        if cancel is not None and _click(hwnd, cancel, img):
+            wait_for(hwnd, "collection", 4)
         return None, f"Search Options is not for {skin!r}"
-    check = screens.find_check_button(img)
+    check = layout.point(img, "check", lambda: screens.find_check_button(img))
     if check is None:
         return None, "no green check found in Search Options"
     if not _click(hwnd, check, img):
@@ -164,7 +176,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
 def close_results(hwnd: int) -> bool:
     """Click the red X under the results list and wait for the collection screen. False if it did not work."""
     img = wait_for(hwnd, "results", 8)  # a banner can hide the list for a few seconds
-    point = None if img is None else screens.find_close_button(img)
+    point = None if img is None else layout.point(img, "close_results", lambda: screens.find_close_button(img))
     return point is not None and _click(hwnd, point, img) and wait_for(hwnd, "collection", 4) is not None
 
 
