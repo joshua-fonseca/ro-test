@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import pytesseract
 
-from scanner.reading import vision  # sets the Tesseract path on Windows
+from scanner.reading import layout, vision  # vision sets the Tesseract path on Windows
 
 Point = tuple[int, int]
 _SEARCH_BAR = np.array([68, 67, 67])  # grey of the collection search box, BGR
@@ -188,6 +188,12 @@ def _tiles_named(img: np.ndarray, name: str, box: tuple[int, int, int, int]) -> 
                 for t in (190, 220, 240):
                     yield pytesseract.image_to_string(255 - cv2.threshold(low, t, 255, cv2.THRESH_BINARY)[1],
                                                       config="--psm 7")
+                # Red gun art behind a small label ('Starember GM6 Lynx'): the red part is shorter than the tile, so the label sits higher
+                mid = cv2.resize(region[y + int(0.73 * tall):y + int(0.845 * tall), x + 4:x + tw - 4].min(2), None, fx=3, fy=3,
+                                 interpolation=cv2.INTER_CUBIC)
+                for t in (200, 230):
+                    yield pytesseract.image_to_string(255 - cv2.threshold(mid, t, 255, cv2.THRESH_BINARY)[1],
+                                                      config="--psm 7")
             reads = itertools.chain(reads, tight_reads())
         else:
             # Unowned tiles are dimmed (grey text ~90 on dark red) with a coloured border: keep only grey pixels
@@ -255,3 +261,18 @@ def find_category_button(img: np.ndarray, category: str) -> Point | None:
         if _letters(text) == _letters(category):
             hits.append((x0 + int(c[0]), y0 + int(c[1])))
     return hits[0] if len(hits) == 1 else None
+
+
+def rarity_is_on(img: np.ndarray, rarity: str) -> bool:
+    """True if the Secret / Limited filter button is lit (bright magenta; off it is dark purple). It looks at the button
+    face beside and below the label, so it still works when the mouse is over the button and it grows."""
+    p = layout.fixed(img, f"rarity:{rarity}")
+    if p is None:
+        return False
+    h, w = img.shape[:2]
+    for dx, dy in ((-0.034 * w, 0), (0.034 * w, 0), (0, 0.020 * h)):
+        x, y = min(max(p[0] + int(dx), 2), w - 3), min(max(p[1] + int(dy), 2), h - 3)
+        b, g, r = img[y - 2:y + 3, x - 2:x + 3].reshape(-1, 3).mean(0)
+        if r > 200 and b > 200 and g < 90:
+            return True
+    return False

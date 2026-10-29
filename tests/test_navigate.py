@@ -206,3 +206,37 @@ def test_a_failed_cleanup_after_the_wrong_skin_is_reported(monkeypatch):
     img, why = navigate.open_results(1, "Nya Reaper")
     assert img is None and "not for" in why and "could not get back" in why
     assert w.state == "results"  # nothing more was clicked on a screen it could not handle
+
+
+def test_the_rarity_filter_is_clicked_when_off_and_left_alone_when_on(monkeypatch):
+    w = World(monkeypatch, size=(1920, 1080))
+    on = [False]
+    monkeypatch.setattr(navigate.screens, "rarity_is_on", lambda img, r: on[0])
+    real_click = w._click
+    monkeypatch.setattr(navigate.controller, "click", lambda h, x, y: on.__setitem__(0, True) or real_click(h, x, y))
+    assert navigate.search_for(1, "Starry Flip Knife", rarity="Limited") == (True, "")
+    assert w.clicks[0] == (10 + int(0.2034 * 1920), 20 + int(0.3807 * 1080))  # the Limited button, then the search box
+    n = len(w.clicks)
+    assert navigate.search_for(1, "Starry Flip Knife", rarity="Limited") == (True, "") and len(w.clicks) == n + 1  # box only
+
+
+def test_a_rarity_filter_that_never_lights_up_stops_the_search(monkeypatch):
+    w = World(monkeypatch, size=(1920, 1080))
+    monkeypatch.setattr(navigate.screens, "rarity_is_on", lambda img, r: False)
+    saved = []
+    ok, why = navigate.search_for(1, "Starry Flip Knife", lambda name, img: saved.append(name), rarity="Secret")
+    assert not ok and "Secret filter did not light up" in why and saved == ["rarity_not_on"] and w.pasted == []
+
+
+def test_the_rarity_is_looked_at_only_after_the_category_changed_the_grid(monkeypatch):
+    w = World(monkeypatch, size=(1920, 1080))
+    looks = []
+    monkeypatch.setattr(navigate, "_grid_change", lambda a, b: looks.append(1) or (0 if len(looks) < 4 else 9))
+    monkeypatch.setattr(navigate.screens, "rarity_is_on", lambda img, r: True)
+    assert navigate.search_for(1, "Nya Reaper", category="Knife", rarity="Limited") == (True, "")
+    assert len(looks) >= 4 and len(w.clicks) == 2  # waited for the change; the filter was already on: no click
+
+
+def test_a_window_that_is_not_16_9_searches_unfiltered(monkeypatch):
+    w = World(monkeypatch, size=(1000, 1000))
+    assert navigate.search_for(1, "Nya Reaper", rarity="Limited") == (True, "") and w.clicks == [(60, 80)]

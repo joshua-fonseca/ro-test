@@ -136,3 +136,20 @@ def test_a_hovered_category_button_that_merges_with_its_neighbour_still_gives_th
 def test_a_short_name_over_pink_art_with_a_rainbow_border_is_read_in_search_options():
     img = load("sniper_arena_scanner_handoff/live_options_nya_pink.png")
     assert screens.options_is_for(img, "Nya Reaper") and not screens.options_is_for(img, "Noire Nya Reaper")
+
+
+def test_the_rarity_button_that_is_lit_is_told_from_the_ones_that_are_not():
+    img = load("sniper_arena_scanner_handoff/live_limited_on.png")  # Limited lit (magenta), Secret and All dark
+    assert screens.rarity_is_on(img, "Limited") and not screens.rarity_is_on(img, "Secret")
+    plain = load("sniper_arena_scanner_handoff/live_crossbow_tile.png")  # All lit: both rarity buttons are off
+    assert not screens.rarity_is_on(plain, "Limited") and not screens.rarity_is_on(plain, "Secret")
+
+
+def test_a_lit_rarity_button_that_grew_under_the_mouse_still_reads_as_lit():
+    img = load("sniper_arena_scanner_handoff/live_limited_hover.png")
+    assert screens.rarity_is_on(img, "Limited") and not screens.rarity_is_on(img, "Secret")
+
+
+def test_small_label_over_red_gun_art_reads_in_search_options():
+    img = load("sniper_arena_scanner_handoff/live_options_starember.png")
+    assert screens.options_is_for(img, "Starember GM6 Lynx") and not screens.options_is_for(img, "Starfade GM6 Lynx")

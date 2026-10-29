@@ -1,7 +1,22 @@
 skin_name,category,rarity,max_price,max_serial,enabled
-Starveil AWP,Sniper,Limited,5000,10,true
-Nya Reaper,Knife,Secret,8200,,true
-Noire Nya Reaper,Knife,Secret,14000,100,true
-Wild Fiend Crossbow,Sniper,Limited,99999999,1,false
-9D Mallow,Sniper,Limited,99999999,1,false
-Nocturne Marlin [Rainbow],Sniper,Secret,99999999,1,false
+
+
+
+Starveil Desert Eagle,Sniper,Limited,6000,100,false
+Starveil M82A1,Sniper,Limited,5000,100,false
+
+
+
+Starveil Flip Knife,Knife,Limited,900,,true
+Starlight Flip Knife,Knife,Limited,900,,true
+Starry Flip Knife,Knife,Limited,900,,true
+Starfade Flip Knife,Knife,Limited,900,,true
+Starember Flip Knife,Knife,Limited,900,,true
+
+
+
+Starry GM6 Lynx,Sniper,Limited,900,,true
+Starveil GM6 Lynx,Sniper,Limited,900,,true
+Starlight GM6 Lynx,Sniper,Limited,900,,true
+Starember GM6 Lynx,Sniper,Limited,900,,true
+Starfade GM6 Lynx,Sniper,Limited,900,,true

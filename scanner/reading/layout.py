@@ -13,6 +13,7 @@ Point = tuple[int, int]
 FIXED = {
     "category:Sniper": (0.0926, 0.1880), "category:Knife": (0.0942, 0.2703),
     "category:Glove": (0.0932, 0.3536), "category:Charm": (0.0942, 0.4369),
+    "rarity:Secret": (0.2034, 0.3209), "rarity:Limited": (0.2034, 0.3807),  # the buttons above the skin list (All is lit by default)
     "search_box": (0.3247, 0.8887),
     "first_tile": (0.3232, 0.2572),  # the searched skin: first slot of the filtered grid
     "check": (0.5453, 0.6791),  # green check in Search Options
@@ -57,3 +58,11 @@ def from_sibling(img: np.ndarray, name: str, find: Callable[[str], Point | None]
         if found and abs(found[0] - FIXED[other][0] * w) <= TOLERANCE * w and abs(found[1] - FIXED[other][1] * h) <= TOLERANCE * w:
             return int(FIXED[name][0] * w), int(FIXED[name][1] * h)
     return None
+
+
+def fixed(img: np.ndarray, name: str) -> Point | None:
+    """The fixed point for `name` on a 16:9 screenshot, with no finder to check it against (None on any other shape)."""
+    if not is_16_9(img) or name not in FIXED:
+        return None
+    h, w = img.shape[:2]
+    return int(FIXED[name][0] * w), int(FIXED[name][1] * h)

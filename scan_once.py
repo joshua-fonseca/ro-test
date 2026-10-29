@@ -268,7 +268,7 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         if opened is None and searched:  # the quick reopen failed: back to the grid, then search again
             navigate.back_to_collection(hwnd)
         if opened is None:  # first time, or the tile is no longer where it was: search for the skin again
-            ok, why = navigate.search_for(hwnd, target.skin_name, save, category=target.category)
+            ok, why = navigate.search_for(hwnd, target.skin_name, save, category=target.category, rarity=target.rarity)
             opened, why = navigate.open_results(hwnd, target.skin_name, save) if ok else (None, why)
         if opened is None:
             navigate.back_to_collection(hwnd)  # leave no dialog open

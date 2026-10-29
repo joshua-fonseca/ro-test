@@ -5,6 +5,7 @@ Windows only. Start with the collection screen open (any text in the search box 
 Every click uses a point from screens.find_*, which only returns one on the screen it belongs to; each step waits
 for the next screen to show before going on, and anything unexpected stops with nothing more clicked.
 """
+import re
 import sys
 import time
 
@@ -62,8 +63,10 @@ def _click(hwnd: int, point, img) -> bool:
     return controller.click(hwnd, x0 + point[0], y0 + point[1])
 
 
-def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: str | None = None) -> tuple[bool, str]:
-    """Pick the skin's category (Sniper, Knife...), click the search box, clear any old text, and type the skin
+def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: str | None = None,
+               rarity: str | None = None) -> tuple[bool, str]:
+    """Pick the skin's category (Sniper, Knife...) and rarity (Secret / Limited: names like 'Starry Flip Knife' also
+    show their [Rainbow] variants, which are Secret), click the search box, clear any old text, and type the skin
     name, but only after the text cursor shows in the empty box: without it the letters would reach the game as
     key presses."""
     img = wait_for(hwnd, "collection", 8)  # 8 s: an in-game "X bought Y" banner can cover the screen for ~6 s
@@ -75,11 +78,40 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
             return False, f"no {category!r} button on the collection screen"
         if not _click(hwnd, point, img):
             return False, "click not sent (Roblox lost focus, or the window changed size)"
+        clicked_on = img  # the grid before the category changed it
         img = wait_for(hwnd, "collection", 8)  # the search box does not move with the category
         if img is None:
             raw = screen.capture(hwnd)  # what the screen looked like instead
             if raw is not None:
                 save("after_category", raw)
+    if rarity in ("Secret", "Limited") and img is not None and category:
+        for _ in range(10):  # picking a category resets the rarity to All a moment later: look only after the grid changed
+            if _grid_change(img, clicked_on) > 2:
+                break
+            time.sleep(0.05)
+            img = screen.capture(hwnd)
+            if img is None:
+                return False, "Roblox lost focus"
+    # shortcut: the rarity buttons have fixed points only, so on a window that is not 16:9 the search runs unfiltered
+    point = layout.fixed(img, f"rarity:{rarity}") if rarity in ("Secret", "Limited") and img is not None else None
+    if point is not None and not screens.rarity_is_on(img, rarity):
+        if not _click(hwnd, point, img):
+            return False, f"could not click the {rarity} filter"
+        for _ in range(20):  # the button lights up within a few frames
+            img = screen.capture(hwnd)
+            if img is None:
+                return False, "Roblox lost focus"
+            if screens.rarity_is_on(img, rarity):
+                time.sleep(0.15)  # a late reset by the category click would switch it off again
+                img = screen.capture(hwnd)
+                if img is not None and screens.rarity_is_on(img, rarity):
+                    break
+                if img is None:
+                    return False, "Roblox lost focus"
+            time.sleep(0.05)
+        else:
+            save("rarity_not_on", img)
+            return False, f"the {rarity} filter did not light up"
     point = None if img is None else layout.point(img, "search_box", lambda: screens.find_search_box(img))
     if point is None:
         if img is not None:
@@ -178,7 +210,8 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         return None, "click not sent (Roblox lost focus, or the window changed size)"
     right_skin = screens.options_is_for(img, skin)  # read while the results load
     results = wait_for(hwnd, "results", 8)
-    if not right_skin:  # the tile was another skin: close what opened
+    if not right_skin:  # the tile was another skin, or its name did not read: close what opened
+        save("options_" + re.sub(r"[^a-z0-9]+", "-", skin.lower()).strip("-"), img)  # one file per skin: see which
         back = back_to_collection(hwnd)
         return None, f"Search Options was not for {skin!r}" + ("" if back else " (and could not get back to the grid)")
     if results is None:
