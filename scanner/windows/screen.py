@@ -39,6 +39,12 @@ if sys.platform == "win32":
         # Class name read from the live game window; the title alone also matches e.g. an Explorer folder "Roblox"
         return user32.FindWindowW("WINDOWSCLIENT", "Roblox") or None
 
+    def foreground_title() -> str:
+        """Title of the window in front (diagnostics: what took focus from Roblox)."""
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(user32.GetForegroundWindow(), buf, 256)
+        return buf.value
+
     def is_focused(hwnd: int) -> bool:
         return user32.GetForegroundWindow() == hwnd
 

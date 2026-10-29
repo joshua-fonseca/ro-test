@@ -159,3 +159,8 @@ def test_a_smaller_window_on_another_monitor_is_still_the_collection_screen():
     img = load("sniper_arena_scanner_handoff/live_small_window_1582.png")  # 1582x911: the search bar's grey band is thin
     assert screens.classify(img) == "collection" and screens.find_search_box(img) is not None
     assert screens.find_category_button(img, "Knife") is not None and screens.find_first_tile(img) is not None
+
+
+def test_search_options_on_a_small_window_reads_the_label_from_the_tile_frame():
+    img = load("sniper_arena_scanner_handoff/live_options_nya_1333.png")  # 1333x750: pink art, little red to size from
+    assert screens.options_is_for(img, "Nya Reaper") and not screens.options_is_for(img, "Noire Nya Reaper")

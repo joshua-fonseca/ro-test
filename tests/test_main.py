@@ -14,8 +14,8 @@ def _setup(monkeypatch, tmp_path, rows, results, focus=lambda: True):
     (tmp_path / "targets.csv").write_text(HEADER + rows)
     calls, backs = [], []
 
-    def run_once(hwnd, cfg, out, target, navigate_mode, searched):
-        calls.append((target.skin_name, navigate_mode, searched))
+    def run_once(hwnd, cfg, out, target, navigate_mode, searched, filters_on, snipe=False):
+        calls.append((target.skin_name, navigate_mode, searched, filters_on))
         if not results:
             raise KeyboardInterrupt
         return results.pop(0)
@@ -31,7 +31,7 @@ def _setup(monkeypatch, tmp_path, rows, results, focus=lambda: True):
 def test_one_skin_is_reopened_without_searching_again(monkeypatch, tmp_path):
     calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)] * 3)
     assert main.main([]) == 130
-    assert calls == [("Nya Reaper", True, False)] + [("Nya Reaper", True, True)] * 3  # last call is the Ctrl+C
+    assert [c[:3] for c in calls] == [("Nya Reaper", True, False)] + [("Nya Reaper", True, True)] * 3  # last call is the Ctrl+C
 
 
 def test_several_skins_are_searched_each_time_and_off_rows_are_skipped(monkeypatch, tmp_path):
@@ -127,3 +127,23 @@ def test_each_full_loop_is_announced(monkeypatch, tmp_path, capsys):
     assert main.main(["--cycles", "2"]) == 0
     out = capsys.readouterr().out
     assert "Loop 1 done, trying again" in out and "Loop 2 done\n" in out
+
+
+def test_the_filter_buttons_are_clicked_only_when_the_category_or_rarity_changes(monkeypatch, tmp_path):
+    rows = ("A,Knife,Limited,1,,true\nB,Knife,Limited,1,,true\nC,Knife,Secret,1,,true\nD,Sniper,Secret,1,,true\n"
+            "E,Sniper,Secret,1,,true\n")
+    calls, _ = _setup(monkeypatch, tmp_path, rows, [(0, True)] * 3 + [(1, True)] + [(0, True)] * 2)
+    assert main.main([]) == 130
+    assert [c[3] for c in calls[:6]] == [False, True, False, False, False, False]  # B repeats A; D failed, so E clicks again
+
+
+def test_width_and_height_run_the_resize_script_first(monkeypatch, tmp_path):
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [])
+    ran = []
+    monkeypatch.setattr(main.subprocess, "run", lambda cmd, **k: ran.append(cmd) or types.SimpleNamespace(returncode=0))
+    assert main.main(["--width", "1600"]) == 130
+    assert ran[0][-2:] == ["-Width", "1600"] and ran[0][0] == "powershell.exe" and "resize_roblox.ps1" in ran[0][5]
+    ran.clear(); calls.clear()
+    monkeypatch.setattr(main.subprocess, "run", lambda cmd, **k: ran.append(cmd) or types.SimpleNamespace(returncode=1))
+    assert main.main(["--height", "900"]) == 2 and calls == []  # a failed resize scans nothing
+    ran.clear(); main.main([]); assert ran == []  # no size asked for: the script is not run

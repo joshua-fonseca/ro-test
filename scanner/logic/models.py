@@ -61,11 +61,18 @@ def _parse_row(row: dict) -> Target:
 
 
 def load_targets(path: str) -> list[Target]:
-    """Read targets.csv without modifying it. Invalid rows and repeated skins are skipped with a warning."""
+    """Read targets.csv without modifying it. Invalid rows and repeated skins are skipped with a warning; lines starting
+    with # are comments."""
     targets: list[Target] = []
     seen: set[str] = set()
     with open(path, newline="", encoding="utf-8") as f:
-        for line, row in enumerate(csv.DictReader(f), start=2):
+        # A line starting with # is a comment: blanked, so it is skipped like an empty line. Blank and comment lines
+        # above the header are left out, or the reader would take one as the header; `start` keeps line numbers right.
+        lines = ["\n" if text.lstrip().startswith("#") else text for text in f]
+        start = next((i for i, text in enumerate(lines) if text.strip()), len(lines))
+        rows = csv.DictReader(lines[start:])
+        for row in rows:
+            line = start + rows.line_num
             try:
                 t = _parse_row(row)
             except ValueError as e:

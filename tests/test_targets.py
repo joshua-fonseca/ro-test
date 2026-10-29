@@ -56,3 +56,22 @@ def test_shipped_example_targets_file_loads():
     result = load_targets("sniper_arena_scanner_handoff/targets.csv")
     assert [t.skin_name for t in result] == ["Example Skin"]
     assert result[0].max_price is None and result[0].enabled is False
+
+
+def test_comment_lines_are_skipped_silently_and_line_numbers_stay_right(tmp_path, caplog):
+    path = write(tmp_path, "# knives\n"
+                           "  # old,Knife,Secret,1,,true\n"      # a comment with commas is still a comment
+                           "\n"
+                           "Nya Reaper,Knife,Secret,999,2,true\n"
+                           "B,Sniper,Rare,1,,true\n")            # line 6: bad rarity
+    with caplog.at_level(logging.WARNING):
+        assert [t.skin_name for t in load_targets(path)] == ["Nya Reaper"]
+    assert len(caplog.records) == 1 and "line 6" in caplog.text
+
+
+def test_comments_above_the_header_are_allowed(tmp_path, caplog):
+    p = tmp_path / "targets.csv"
+    p.write_text("# my targets\n\n" + HEADER + "Nya Reaper,Knife,Secret,999,2,true\nB,Sniper,Rare,1,,true\n")
+    with caplog.at_level(logging.WARNING):
+        assert [t.skin_name for t in load_targets(str(p))] == ["Nya Reaper"]
+    assert "line 5" in caplog.text  # B is on line 5 of the file

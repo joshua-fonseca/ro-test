@@ -11,6 +11,16 @@ class Config:
     min_window_width: int = 1200  # real pixels; refuse to scan below this
     targets_path: str = "targets.csv"
     output_dir: str = "output"
+    # main.py --snipe (seconds)
+    teleport_wait_seconds: float = 2  # after the black loading screen is gone, before walking to the stall
+    teleport_max_seconds: float = 60  # stop if the new server has not shown after this long
+    teleport_retries: int = 3  # "Teleport Failed" (server full): click Teleport on the same listing this many more times
+    walk_seconds: float = 0.5  # hold W, then S, to stand where the stall's "E Open" prompt shows
+    hold_e_seconds: float = 1  # hold E to open a stall
+    stall_load_seconds: float = 5  # how long to keep looking for the item in a stall before calling it gone
+    snipe_step_timeout: float = 8  # how long each button may take to show before the flow stops
+    robux_box_wait_seconds: float = 2  # after the green check: how long to wait for a late Buy Robux box
+    snipe_click_pause: float = 0.5  # after each click, for the next screen to show
 
 
 def load_config(path: str = "config.json") -> Config:

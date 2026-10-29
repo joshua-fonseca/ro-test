@@ -54,22 +54,25 @@ def _settled(hwnd: int, img, seconds: float = 3):
     return img
 
 
-def _click(hwnd: int, point, img) -> bool:
+def _click(hwnd: int, point, img, hover: float = 0) -> bool:
     """Click a point found on screenshot `img`. Refused if the window is a different size now (resized or moved
     to another monitor since the screenshot): the same point would land on something else."""
     x0, y0, w, h = screen.client_rect(hwnd)
     if (w, h) != (img.shape[1], img.shape[0]):
         return False
-    return controller.click(hwnd, x0 + point[0], y0 + point[1])
+    x, y = x0 + point[0], y0 + point[1]
+    return controller.click(hwnd, x, y, hover) if hover else controller.click(hwnd, x, y)
 
 
 def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: str | None = None,
-               rarity: str | None = None) -> tuple[bool, str]:
+               rarity: str | None = None, filters_on: bool = False) -> tuple[bool, str]:
     """Pick the skin's category (Sniper, Knife...) and rarity (Secret / Limited: names like 'Starry Flip Knife' also
     show their [Rainbow] variants, which are Secret), click the search box, clear any old text, and type the skin
     name, but only after the text cursor shows in the empty box: without it the letters would reach the game as
     key presses."""
     img = wait_for(hwnd, "collection", 8)  # 8 s: an in-game "X bought Y" banner can cover the screen for ~6 s
+    if filters_on:  # the last search already picked this category; the rarity is still checked (one look, no click if lit)
+        category = None
     if category and img is not None:
         point = layout.point(img, f"category:{category}", lambda: layout.from_sibling(
             img, f"category:{category}", lambda name: screens.find_category_button(img, name.split(":")[1])))

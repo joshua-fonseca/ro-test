@@ -1,3 +1,4 @@
+import types
 import csv
 import glob
 from pathlib import Path
@@ -6,8 +7,11 @@ from datetime import datetime, timezone
 import pytest
 
 cv2 = pytest.importorskip("cv2")
+import numpy as np  # noqa: E402
 from scanner.logic.models import Target  # noqa: E402
+import scan_once  # noqa: E402
 from scan_once import scan_list, scan_visible  # noqa: E402
+from scanner.reading import screens, vision  # noqa: E402
 from scanner.logic.storage import Store  # noqa: E402
 
 NOW = datetime(2026, 10, 28, 20, 0, tzinfo=timezone.utc)
@@ -364,3 +368,72 @@ def test_live_frames_returns_none_not_a_crash_when_focus_is_lost_right_after_a_s
     next_frame(0)
     shown[0] = None  # the user clicked another window: the capture comes back empty
     assert next_frame(2) is None
+
+
+def test_find_teleport_points_at_a_green_button_of_the_given_card():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_nya_reaper.png")
+    boxes = vision.find_cards(img)
+    full = vision.full_card(boxes[1], 0.48 * img.shape[0])
+    x, y = screens.find_teleport(img, full)
+    assert 1170 < x < 1330 and 520 < y < 585  # inside the second card's Teleport button
+    assert screens.find_teleport(img, (100, 100, 800, 270)) is None  # not a card of the list: nothing green there
+
+
+def test_snipe_scrolls_back_to_the_match_and_finds_the_card_again(tmp_path):
+    frames = sorted(glob.glob("sniper_arena_scanner_handoff/scroll_noire_1069/*.png"))
+    first, second = cv2.imread(frames[0]), cv2.imread(frames[1])
+    asked = []
+
+    def next_frame(n):  # down goes to the next saved frame, back up to the first
+        asked.append(n)
+        return second if n > 0 else first
+    target = Target("Noire Nya Reaper", "Sniper", "Secret", 10_000_000, None, True)  # the first card matches
+    r = scan_list(first, next_frame, target, Store(tmp_path / "output"), tmp_path, NOW, at_top=True, snipe=True)
+    shown, box, listing = r["match"]
+    assert r["status"] == "stopped_at_first_match" and asked[0] > 0 and asked[-1] == -asked[0] and shown is first
+    assert screens.find_teleport(first, box) is not None
+    r = scan_list(first, next_frame, target, Store(tmp_path / "o2"), tmp_path, NOW, at_top=True)
+    assert "match" not in r  # without snipe nothing is kept for a click
+
+
+def test_the_matched_card_is_found_by_its_picture_or_not_at_all():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_nya_reaper.png")
+    box = vision.full_card(vision.find_cards(img)[1], 0.48 * img.shape[0])
+    shifted = np.roll(img, -40, axis=0)  # the list 40 px further down
+    assert scan_once._relocate(img, box, shifted) == (box[0], box[1] - 40, box[2], box[3] - 40)
+    assert scan_once._relocate(img, box, cv2.imread("sniper_arena_scanner_handoff/live_crossbow_results.png")) is None
+
+
+def test_teleport_is_clicked_only_while_the_list_looks_as_it_did(monkeypatch):
+    from scanner.windows import navigate, screen
+    img = cv2.imread("sniper_arena_scanner_handoff/live_nya_reaper.png")
+    box = vision.full_card(vision.find_cards(img)[1], 0.48 * img.shape[0])
+    clicks = []
+    monkeypatch.setattr(screen, "capture", lambda hwnd: img, raising=False)
+    monkeypatch.setattr(navigate, "_click", lambda hwnd, p, im, hover=0: clicks.append(p) or True)
+    assert scan_once._teleport(1, img, box) == (True, "") and len(clicks) == 1
+    moved = img[:, ::-1].copy()  # a different picture: the list is not what was read
+    monkeypatch.setattr(screen, "capture", lambda hwnd: moved, raising=False)
+    ok, why = scan_once._teleport(1, img, box)
+    assert not ok and len(clicks) == 1
+
+
+def test_a_full_server_is_tried_again_on_the_same_listing_then_the_next_skin(monkeypatch, tmp_path):
+    from scanner.logic.config import Config
+    from scanner.windows import snipe as flow
+    tries, still_listed = [], iter([True, True, False])
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card: (next(still_listed), "the list moved"))
+
+    def full(*a):
+        tries.append(1)
+        raise flow.TeleportFailed("the server is full")
+    monkeypatch.setattr(flow, "after_teleport", full)
+    listing = types.SimpleNamespace(price=100, price_approx=False)
+    target = Target("Nya Reaper", "Knife", "Secret", 999, 2, True)
+    assert not scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing)
+    assert len(tries) == 2  # tried twice; on the third look the listing was gone: next skin
+    still_listed = iter([True] * 9)
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card: (next(still_listed), ""))
+    tries.clear()
+    assert not scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing)
+    assert len(tries) == 4  # the first try and 3 retries, then next skin

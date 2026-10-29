@@ -4,7 +4,7 @@ Roblox must be in front for every single event; the moment it is not, nothing mo
 key up) are the one exception: they are always sent so nothing is left held down.
 
 click() sends a click wherever it is told. Callers must get the point from screens.find_* only, which return a
-point on the right screen and nothing else; never click Teleport, buy, trade or payment buttons.
+point on the right screen and nothing else; never click trade or payment buttons. Teleport and buy only in `main.py --snipe` (scanner/windows/snipe.py).
 """
 import ctypes
 import sys
@@ -56,12 +56,16 @@ def scroll(hwnd: int, x: int, y: int, notches: int) -> bool:
     return _run(hwnd, _hover(x, y) + [(user32.mouse_event, WHEEL, 0, 0, wheel, 0)] * abs(notches))
 
 
-def click(hwnd: int, x: int, y: int) -> bool:
-    """Left-click screen point (x, y). False, sending nothing, if the point is outside the game area; False if
-    focus was lost before the button went down."""
+def click(hwnd: int, x: int, y: int, hover: float = 0) -> bool:
+    """Left-click screen point (x, y), resting `hover` s on it first. False, sending nothing, if the point is outside
+    the game area; False if focus was lost before the button went down."""
     if not _inside(hwnd, x, y):
         return False
-    if not _run(hwnd, _hover(x, y)) or not _send(hwnd, user32.mouse_event, LEFT_DOWN, 0, 0, 0, 0):
+    if not _run(hwnd, _hover(x, y)):
+        return False
+    if hover:
+        time.sleep(hover)
+    if not _send(hwnd, user32.mouse_event, LEFT_DOWN, 0, 0, 0, 0):
         return False
     try:
         time.sleep(0.03)
@@ -146,3 +150,20 @@ def clear_box(hwnd: int, times: int) -> bool:
     """Empty the text box that has focus: Backspace deletes left of the cursor and Delete right of it (a click leaves the
     cursor wherever it landed, and Roblox ignores End). Both do nothing in the game itself."""
     return backspace(hwnd, times) and all(_tap(hwnd, DELETE) for _ in range(times))
+
+
+def hold_key(hwnd: int, key: int, seconds: float) -> bool:
+    """Hold one key down for `seconds` (walking with W/S, the hold-E prompts). False, and the key comes up at once,
+    if Roblox loses focus while it is held; the key always comes up."""
+    scan = user32.MapVirtualKeyW(key, 0)
+    try:
+        if not _send(hwnd, user32.keybd_event, key, scan, 0, 0):
+            return False
+        end = time.time() + seconds
+        while time.time() < end:
+            if not screen.is_focused(hwnd):
+                return False
+            time.sleep(0.05)
+        return True
+    finally:  # always, even on Ctrl+C: nothing is left held down
+        user32.keybd_event(key, scan, KEY_UP, 0)

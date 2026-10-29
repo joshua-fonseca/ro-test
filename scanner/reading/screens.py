@@ -171,8 +171,7 @@ def _tiles_named(img: np.ndarray, name: str, box: tuple[int, int, int, int]) -> 
         owned = np.median(region[y:y + tall, x:x + tw, 2]) > 90  # owned tiles are bright red, unowned ones dark (~60)
         if owned:
             # Gun art leaks stray letters at some thresholds ('Starveil AWP in'), so try a few and need an exact read
-            grey = cv2.resize(label.min(2), None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-            reads = (pytesseract.image_to_string(255 - cv2.threshold(grey, t, 255, cv2.THRESH_BINARY)[1], config="--psm 7")
+            reads = (pytesseract.image_to_string(_white(label, t), config="--psm 7")
                      for t in (200, 220, 240))
             # A long name under gun art ('Wild Fiend Crossbow') only reads from the tight band at a lower threshold
             def tight_reads(x=x, y=y, tw=tw, tall=tall):  # lazy: only built if the first reads did not match
@@ -239,7 +238,35 @@ def options_is_for(img: np.ndarray, name: str) -> bool:
     if classify(img) != "options":
         return False
     x, y, w, h = modal_box(img)
-    return len(_tiles_named(img, name, (x, y, x + w, y + h // 2))) == 1
+    if len(_tiles_named(img, name, (x, y, x + w, y + h // 2))) == 1:
+        return True
+    return any(_letters(_trim(text)) == _letters(name) for text in _options_label_reads(img, (x, y, w, h)))
+
+
+def _white(crop: np.ndarray, threshold: int = 200) -> np.ndarray:
+    """White text on colour: keep only the bright pixels, 3x bigger, dark on light for Tesseract."""
+    grey = cv2.resize(crop.min(2), None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    return 255 - cv2.threshold(grey, threshold, 255, cv2.THRESH_BINARY)[1]
+
+
+def _options_label_reads(img: np.ndarray, box: tuple[int, int, int, int]):
+    """Reads of the label of the one tile in Search Options, found by its coloured frame (centred, ~18% of the box
+    wide). For a small window, where pink art leaves too little red to size the tile from (Nya Reaper at 1333x750)."""
+    x, y, w, h = box
+    top = img[y:y + int(0.35 * h), x:x + w].astype(int)
+    frame = top.max(2) - top.min(2) > 80  # the coloured tile frame; the box itself is grey
+    cols = np.nonzero(frame.sum(0) > 0.25 * frame.shape[0])[0]
+    if len(cols) < 2:
+        return
+    left, right = int(cols.min()), int(cols.max())
+    side = right - left
+    rows = np.nonzero(frame[:, left:right + 1].sum(1) > 0.5 * side)[0]
+    if not len(rows):
+        return
+    t = y + int(rows.min())
+    label = img[t + int(0.82 * side):t + int(0.98 * side), x + left + int(0.03 * side):x + right - int(0.03 * side)]
+    for threshold in (170, 200, 230):
+        yield pytesseract.image_to_string(_white(label, threshold), config="--psm 7")
 
 
 def find_category_button(img: np.ndarray, category: str) -> Point | None:
@@ -256,8 +283,7 @@ def find_category_button(img: np.ndarray, category: str) -> Point | None:
     for st, c in _components(blue, int(0.002 * w * h)):
         x, y, bw, bh = st[:4]
         label = strip[y:y + bh, x + bw // 3:x + bw].astype(np.uint8)  # the icon sits on the left third
-        grey = cv2.resize(label.min(2), None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-        text = pytesseract.image_to_string(255 - cv2.threshold(grey, 220, 255, cv2.THRESH_BINARY)[1], config="--psm 7")
+        text = pytesseract.image_to_string(_white(label, 220), config="--psm 7")
         if _letters(text) == _letters(category):
             hits.append((x0 + int(c[0]), y0 + int(c[1])))
     return hits[0] if len(hits) == 1 else None
@@ -276,3 +302,117 @@ def rarity_is_on(img: np.ndarray, rarity: str) -> bool:
         if r > 200 and b > 200 and g < 90:
             return True
     return False
+
+
+def _green(a: np.ndarray) -> np.ndarray:
+    a = a.astype(int)
+    return (a[..., 1] > 80) & (a[..., 1] - a[..., 2] > 40) & (a[..., 1] - a[..., 0] > 40)
+
+
+def find_teleport(img: np.ndarray, card: tuple[int, int, int, int]) -> Point | None:
+    """Centre of the green Teleport button of a full listing card (left, top, right, bottom) in the results list; None
+    if that spot is not green. Only `--snipe` clicks it, on the card that matched, never anywhere else."""
+    l, t, r, b = (int(v) for v in card)
+    w, h = r - l, b - t
+    band = img[t + int(0.72 * h):t + int(0.86 * h), l + int(0.80 * w):l + int(0.97 * w)]
+    return (l + int(0.885 * w), t + int(0.78 * h)) if _green(band).mean() > 0.25 else None
+
+
+def find_stall_buy(img: np.ndarray, name: str, low: int, high: int) -> Point | None:
+    """`--snipe`, inside a seller's stall: centre of the green cash button under the tile `name` whose button shows
+    a price from `low` to `high` (the same number unless the list showed a shortened '11.7k'); None if the stall no
+    longer has it. Prices are read first (all at once, digits only), and only a
+    tile over a button with the right price has its name read."""
+    h, w = img.shape[:2]
+    x0, y0 = int(0.15 * w), int(0.15 * h)
+    mask = cv2.morphologyEx(_green(img[y0:int(0.85 * h), x0:int(0.86 * w)]).astype(np.uint8), cv2.MORPH_CLOSE,
+                            np.ones((5, 5), np.uint8))
+    buttons = [tuple(int(v) for v in s[:4]) for s, _ in _components(mask, int(0.0015 * w * h)) if s[2] > 2 * s[3]]
+    buttons = [(x0 + x, y0 + y, bw, bh) for x, y, bw, bh in buttons]
+
+    def is_name(label: str) -> bool:
+        # A two-line name reads as one line. Art can add a stray letter or two at either end ('Aa - Starlight Fan',
+        # 'Nya ReaperS'), but never a word: 'Noire Nya Reaper' must not pass for 'Nya Reaper'
+        read, want = _letters(label), _letters(name)
+        at = read.find(want)
+        return at != -1 and at <= 2 and len(read) - at - len(want) <= 2
+
+    prices = vision._ocr_all([_white(img[y:y + bh, x:x + int(0.62 * bw)]) for x, y, bw, bh in buttons], "0123456789,")
+    for (x, y, bw, bh), text in zip(buttons, prices):
+        digits = text.replace(",", "")
+        if not digits.isdigit() or not low <= int(digits) <= high:
+            continue
+        tile = img[max(0, y - int(0.155 * h)):y - int(0.004 * h), x:x + bw]
+        labels = (pytesseract.image_to_string(_white(tile[int(band * tile.shape[0]):], t), config="--psm 6")
+                  for band in (0.62, 0.75) for t in (200, 230))  # lazy: stops at the first read that is the name
+        if any(is_name(label) for label in labels):
+            return x + bw // 2, y + bh // 2
+    return None
+
+
+# --snipe: buttons at fixed points of a 16:9 window (measured on 1322-1331 px wide screenshots) and the colour each
+# must show before it is clicked, so a click never lands on a screen that is not the expected one
+SNIPE = {
+    "buy_check": ((0.557, 0.674), "green"), "stall_exit": ((0.079, 0.808), "red"),
+    "inventory": ((0.29, 0.085), "orange_line"), "inventory_all": ((0.404, 0.234), "blue"),
+    "inspect": ((0.266, 0.615), "blue"), "sell_on_market": ((0.882, 0.781), "blue"),
+    "claim_check": ((0.558, 0.534), "green"), "same_items_check": ((0.559, 0.579), "green"),
+}
+
+
+def snipe_button(img: np.ndarray, name: str) -> Point | None:
+    """The fixed point of `--snipe` button `name` if that spot shows the button's colour now, else None."""
+    (fx, fy), colour = SNIPE[name]
+    h, w = img.shape[:2]
+    x, y, r = int(fx * w), int(fy * h), int(0.012 * w)
+    if colour == "orange_line":  # the Inventory button is see-through; only its orange underline is fixed
+        strip = img[int(0.118 * h):int(0.137 * h), int(0.24 * w):int(0.34 * w)].astype(int)
+        on = ((strip[..., 2] > 200) & (strip[..., 1] > 130) & (strip[..., 1] < 210) & (strip[..., 0] < 60)).mean() > 0.05
+        return (x, y) if on else None
+    p = img[y - r:y + r, x - r:x + r].astype(int)
+    b, g, rr = p[..., 0], p[..., 1], p[..., 2]
+    share = {"green": _green(p), "blue": (b > 120) & (b - rr > 60) & (rr < 50), "red": (rr > 120) & (rr - g > 70) & (rr - b > 70)}[colour]
+    return (x, y) if share.mean() > 0.25 else None
+
+
+def find_teleport_failed_ok(img: np.ndarray) -> Point | None:
+    """Centre of the white Ok button of Roblox's "Teleport Failed" box (server full), or None. Roblox draws that box
+    in its own size, not the game's, so it is found by shape: a wide pure-white bar near the middle with the box's flat
+    grey (~57) just above it."""
+    h, w = img.shape[:2]
+    x0, y0 = int(0.25 * w), int(0.35 * h)
+    region = img[y0:int(0.85 * h), x0:int(0.75 * w)]
+    white = (region.min(2) > 235).astype(np.uint8)
+    for s, c in _components(white, int(0.004 * w * h)):
+        bx, by, bw, bh = (int(v) for v in s[:4])
+        if bw < 0.15 * w or not 0.02 * h <= bh <= 0.08 * h or s[4] < 0.9 * bw * bh:
+            continue
+        above = region[max(0, by - 12):max(0, by - 4), bx:bx + bw].astype(int)
+        if above.size and (np.abs(above - 57).max(2) < 15).mean() > 0.8:
+            return x0 + int(c[0]), y0 + int(c[1])
+    return None
+
+
+def find_robux_prompt_close(img: np.ndarray) -> Point | None:
+    """The X (top right) of Roblox's "Buy Robux and item" box, which shows instead of the confirm box when there is
+    not enough cash. That box charges real money: only its X is ever clicked, and only when the whole box is
+    recognised (its flat dark panel, the blue Buy button low in it, and a white X in its top right corner)."""
+    h, w = img.shape[:2]
+    x0, y0 = int(0.15 * w), int(0.1 * h)
+    region = img[y0:int(0.9 * h), x0:int(0.85 * w)]
+    panel = (np.abs(region.astype(int) - (31, 26, 25)).max(2) <= 3).astype(np.uint8)
+    panel = cv2.morphologyEx(panel, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    found = [s for s, _ in _components(panel, int(0.05 * w * h)) if s[2] > 0.2 * w and s[3] > 0.3 * h]
+    if len(found) != 1:
+        return None
+    px, py, pw, ph = (int(v) for v in found[0][:4])
+    low = region[py + int(0.6 * ph):py + ph, px:px + pw].astype(int)
+    blue = (low[..., 0] > 200) & (low[..., 2] < 100) & (low[..., 1] < 130)
+    if blue.mean() < 0.02:  # no Buy button: not this box
+        return None
+    corner = region[py:py + int(0.18 * ph), px + int(0.88 * pw):px + pw]
+    marks = _components((corner.min(2) > 200).astype(np.uint8), 20)
+    if len(marks) != 1:
+        return None
+    cx, cy = marks[0][1]
+    return x0 + px + int(0.88 * pw) + int(cx), y0 + py + int(cy)

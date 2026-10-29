@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from scanner.reading import vision
+from scanner.reading import screens, vision
 from scanner.logic.config import load_config
 from scanner.logic.cropper import save_crop
 from scanner.logic.matcher import matches
@@ -92,6 +92,8 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
         if line:
             result["lines"].append(line)
         if ok and first_only:
+            result["match_box"] = vision.full_card(card.box, 0.48 * img.shape[0])  # where --snipe clicks Teleport
+            result["match_listing"] = listing
             break
     return result
 
@@ -129,7 +131,7 @@ def _shift(a: np.ndarray, b: np.ndarray) -> tuple[int, float]:
 
 
 def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Path, now: datetime,
-              max_steps: int = 300, at_top: bool = False, calibrate: bool = False) -> dict:
+              max_steps: int = 300, at_top: bool = False, calibrate: bool = False, snipe: bool = False) -> dict:
     """Go to the top of the list, then read it down to the end or until prices pass max_price. No Windows calls.
 
     at_top: the list was just opened, so it is already at the top: no scrolling up first.
@@ -137,6 +139,8 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
     Roblox lost focus. status: complete (end reached), stopped_at_price, stopped_at_first_match, focus_lost,
     list_lost or max_steps. Only the cheapest match is wanted, so the scan stops at the first one; an unreadable
     card above it is skipped, not waited for.
+    snipe: on a match the list is scrolled back to it (it moved on while the frame was read) and the result has
+    total["match"] = (a fresh frame, the matched card's box in it, its listing), or no "match" if it was not found.
     """
     total = {"read": 0, "matches": 0, "unreadable": 0, "lines": [], "frames": 0,
              "records": vision.read_record_count(img), "sorted": True, "status": "max_steps"}
@@ -182,6 +186,8 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
                 break
             if total["sorted"] and r["matches"]:
                 total["status"] = "stopped_at_first_match"
+                if snipe and "match_box" in r:
+                    total["match"] = _back_to_match(next_frame, before, img, notches, r["match_box"], r["match_listing"])
                 break
             if img is None:
                 total["status"] = "focus_lost"
@@ -204,6 +210,36 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
                 total["status"] = "complete"
                 break
     return total
+
+
+def _relocate(src: np.ndarray, box, dst: np.ndarray):
+    """The box in `dst` of the card at `box` in `src`, found by matching its picture; None unless clearly found."""
+    h = src.shape[0]
+    l, t, r, b = (int(v) for v in box)
+    t, b = max(0, t), min(h, b)  # a card cut off at the list edge: match the part that shows
+    if b - t < 20 or src.shape != dst.shape:
+        return None
+    gray = lambda im: cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)  # noqa: E731
+    column = gray(dst)[:, l:r]
+    scores = cv2.matchTemplate(column, gray(src)[t:b, l:r], cv2.TM_CCOEFF_NORMED)[:, 0]
+    best = int(scores.argmax())
+    if scores[best] < 0.95:  # shortcut: 0.95 tested on saved frames only; tune if a live match is missed
+        return None
+    dy = best - t
+    return l, box[1] + dy, r, box[3] + dy
+
+
+def _back_to_match(next_frame, before: np.ndarray, now: np.ndarray | None, notches: int, box, listing):
+    """--snipe: the list scrolled on while `before` was read; scroll back the same notches and find the matched card
+    again by its picture. (frame, box, listing) for the Teleport click, or None: then nothing is clicked."""
+    img = now if not notches else (None if now is None else next_frame(-notches))
+    if img is None:
+        return None
+    found = _relocate(before, box, img)
+    if found is None:
+        log.warning("the matched card was not found again after scrolling back: no Teleport")
+        return None
+    return img, found, listing
 
 
 def _live_frames(hwnd: int, frames_dir: Path | None = None):
@@ -250,13 +286,77 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
     return next_frame
 
 
-def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: bool) -> tuple[int, bool]:
+TELEPORTED = 10  # _run_once's exit code once --snipe clicked Teleport (and ran the steps after it): the caller stops
+
+
+def _teleport(hwnd: int, shown: np.ndarray, card) -> tuple[bool, str]:
+    """--snipe: click Teleport on the matched card, but only if the list still looks exactly as it did when the card
+    was read (nothing scrolled or covered it) and the spot is a green Teleport button. (clicked, why not)."""
+    from scanner.windows import navigate, screen
+    now = screen.capture(hwnd)
+    if now is None:
+        return False, "Roblox lost focus"
+    a, b = _view(now), _view(shown)
+    if a is None or b is None or not _same(a, b):
+        return False, "the list moved since the match was read"
+    point = screens.find_teleport(now, card)
+    if point is None:
+        return False, "no green Teleport button where the matched card is"
+    from scanner.windows.snipe import HOVER
+    if not navigate._click(hwnd, point, now, HOVER):
+        return False, "click not sent (Roblox lost focus, or the window changed size)"
+    return True, ""
+
+
+def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) -> bool:
+    """--snipe on a match: Teleport, then snipe.after_teleport. A full server ("Teleport Failed", Ok clicked) is tried
+    again on the same listing, up to cfg.teleport_retries more times, while the list still shows it. True once it
+    teleported (the loop stops); False to close the results and go on with the next skin."""
+    from scanner.windows import snipe as flow
+    probe = out / "probe"
+    probe.mkdir(parents=True, exist_ok=True)
+    for old in probe.glob("snipe_*.png"):  # only this snipe's step screens are kept
+        old.unlink()
+    for attempt in range(1 + cfg.teleport_retries):
+        if attempt:
+            time.sleep(1)  # after Ok: let the list settle before checking it still shows the listing
+        teleported, why = _teleport(hwnd, shown, card)
+        print("Teleport clicked." if teleported else f"Teleport not clicked: {why}. Going on with the next skin.")
+        if not teleported:
+            return False
+        try:
+            print(flow.after_teleport(hwnd, cfg, target.skin_name, listing.price,
+                                      price_high(listing.price, listing.price_approx),
+                                      lambda name, im: cv2.imwrite(str(probe / f"{name}.png"), im)))
+        except flow.NotTeleported as e:  # still on this server with the list up: same as Teleport not clicked
+            print(f"{e}. Going on with the next skin.")
+            return False
+        except flow.TeleportFailed as e:  # Ok was clicked: the results list shows again
+            print(f"Teleport failed: {e}. Clicked Ok; "
+                  + ("going on with the next skin." if attempt == cfg.teleport_retries else "trying the same listing again."))
+            continue
+        except flow.Stopped as e:
+            print(f"Snipe stopped: {e}. Nothing more was sent; take over from here.")
+            if e.img is not None:  # diagnostics: the screen the flow gave up on
+                cv2.imwrite(str(probe / "snipe_stopped.png"), e.img)
+                print(f"The screen it stopped on: {probe / 'snipe_stopped.png'}")
+        except Exception:  # Teleport went through: whatever broke, never go back to scanning on the new server
+            log.exception("the snipe flow crashed after Teleport")
+            print("Snipe stopped: the flow crashed after Teleport (see run.log). Nothing more was sent; take over from here.")
+        return True
+    return False
+
+
+def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: bool,
+              filters_on: bool = False, snipe: bool = False) -> tuple[int, bool]:
     """One scan of `target`. With navigate_mode it opens the results first (straight from the grid if `searched`:
-    the skin is still searched from the last run) and closes them after. (exit code, skin is still searched)."""
+    the skin is still searched from the last run) and closes them after. filters_on: the category and rarity buttons
+    already show this target's choice, so they are not clicked again. snipe: click Teleport on the first match, run
+    snipe.after_teleport (buy it, put the stall up again) and return TELEPORTED. (exit code, skin is still searched)."""
     store = Store(out)
     now = datetime.now().astimezone()
     store.begin_cycle(now.strftime("%Y%m%dT%H%M%S"))
-    navigated = stopped = False
+    navigated = stopped = teleported = False
     if navigate_mode:
         from scanner.windows import navigate, screen
         if screen.client_rect(hwnd)[2] < cfg.min_window_width:  # before any click: the layout is only known for big windows
@@ -269,7 +369,8 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         if opened is None and searched:  # the quick reopen failed: back to the grid, then search again
             navigate.back_to_collection(hwnd)
         if opened is None:  # first time, or the tile is no longer where it was: search for the skin again
-            ok, why = navigate.search_for(hwnd, target.skin_name, save, category=target.category, rarity=target.rarity)
+            ok, why = navigate.search_for(hwnd, target.skin_name, save, category=target.category, rarity=target.rarity,
+                                         filters_on=filters_on)
             opened, why = navigate.open_results(hwnd, target.skin_name, save) if ok else (None, why)
         if opened is None:
             navigate.back_to_collection(hwnd)  # leave no dialog open
@@ -302,7 +403,8 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             store.log_scan(now, target, "no_results_visible")
             return 1, navigated
         print("Scrolling the list: hands off the mouse; click another window to stop.")
-        r = scan_list(img, next_frame, target, store, out, now, at_top=navigated, calibrate=True)
+        r = scan_list(img, next_frame, target, store, out, now, at_top=navigated, calibrate=True,
+                      snipe=snipe and navigated)
         if r["status"] == "complete":
             store.end_cycle()  # only a full scroll saw every listing; an early stop must not mark the rest unseen
         store.log_scan(now, target, r["status"], r["read"], r["matches"],
@@ -313,13 +415,17 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         print(f"{r['status']}: {r['read']} listing(s) read, {r['matches']} match(es); records found: {r['records']}"
               + (f"; {r['unreadable']} unreadable card read(s)" if r["unreadable"] else "")
               + ("" if r["sorted"] else "; list was not sorted by price, scrolled to the end"))
+        if r.get("match"):  # only set when scan_list ran with snipe
+            teleported = _snipe(hwnd, cfg, out, target, *r["match"])
+            if teleported:
+                return TELEPORTED, navigated
         return (0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1), navigated
     except BaseException as e:  # a cut-short run still leaves a row in scan_log.csv
         store.log_scan(now, target, "interrupted" if isinstance(e, KeyboardInterrupt) else "error", detail=repr(e))
         stopped = isinstance(e, KeyboardInterrupt)  # asked to stop: no more clicks
         raise
     finally:
-        if navigated and not stopped:
+        if navigated and not stopped and not teleported:
             try:
                 if not navigate.close_results(hwnd):
                     print("Could not close the results list; close it yourself (red X) before the next run")

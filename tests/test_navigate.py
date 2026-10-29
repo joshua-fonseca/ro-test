@@ -242,3 +242,20 @@ def test_nothing_is_typed_without_a_cursor_when_the_paste_was_not_possible(monke
     w = World(monkeypatch, caret=False)
     monkeypatch.setattr(navigate.controller, "paste_text", lambda hwnd, text: False)
     assert navigate.search_for(1, "Nya Reaper") == (False, "no text cursor in the search box; typed nothing") and w.typed == []
+
+
+def test_filters_that_are_already_on_are_not_clicked_again(monkeypatch):
+    w = World(monkeypatch, size=(1920, 1080))
+    monkeypatch.setattr(navigate.screens, "rarity_is_on", lambda img, r: True)
+    assert navigate.search_for(1, "Nya Reaper", category="Knife", rarity="Limited", filters_on=True) == (True, "")
+    assert w.clicks == [(60, 80)]  # only the search box
+
+
+def test_filters_on_still_checks_the_rarity_and_clicks_it_if_the_game_reset_it(monkeypatch):
+    w = World(monkeypatch, size=(1920, 1080))
+    lit = [False]
+    monkeypatch.setattr(navigate.screens, "rarity_is_on", lambda img, r: lit[0])
+    real_click = w._click
+    monkeypatch.setattr(navigate.controller, "click", lambda h, x, y: lit.__setitem__(0, True) or real_click(h, x, y))
+    assert navigate.search_for(1, "Nya Reaper", category="Knife", rarity="Limited", filters_on=True) == (True, "")
+    assert len(w.clicks) == 2  # the Limited button (it was off), then the search box; no category click

@@ -3,13 +3,17 @@ r"""Scan every enabled skin in targets.csv, one after another, over and over unt
 Start with the collection screen open in Roblox. Each pass reads targets.csv again (so edits and enabled=false take
 effect) and scans each enabled row that has a max_price. A skin scanned twice in a row is reopened without
 searching again; a different skin is searched for. The next pass starts at once: there is no pause.
-It clicks and types the same way as `scan_once.py --navigate` and never clicks Teleport, buy, trade or payment
-buttons. Matches are printed and saved under output/. Stops by itself after 3 failed scans in a row.
+It clicks and types the same way as `scan_once.py --navigate` and never clicks trade or payment buttons; Teleport, buy
+and Sell on Market are clicked only with --snipe. Matches are printed and saved under output/. Stops by itself after 3 failed scans in a row.
 
 Flags:
     --wait N          seconds to wait for you to click the Roblox title bar (default 30)
     --cycles N        stop after N passes over targets.csv (default 0 = until Ctrl+C)
     --clear-matches   first delete matches.csv and the saved match pictures, then scan as usual
+    --snipe           on the first match: Teleport, buy it from the seller's stall, put your own stall up again, then
+                      stop the loop (scanner/windows/snipe.py; waits and hold times are in config.json)
+    --width N         first resize the Roblox window so its game area is N px wide (height follows at 16:9);
+    --height N        or N px high (width follows). Both = that exact size. Runs tools/resize_roblox.ps1.
 
 Run it on Windows (it captures the screen and sends input), with Roblox open on the collection screen:
     Windows PowerShell:  & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe \\wsl.localhost\Ubuntu\home\kkura\repos\ro-test\main.py --cycles 1
@@ -19,6 +23,7 @@ Stop with Ctrl+C in the window it runs in. (From WSL, Ctrl+C may leave the Windo
 import argparse
 import logging
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -45,6 +50,16 @@ def _wait_for_focus(hwnd: int, screen, seconds: float | None = None) -> bool:
     return True
 
 
+RESIZE_SCRIPT = Path(__file__).parent / "tools" / "resize_roblox.ps1"
+
+
+def resize_roblox(width: int, height: int) -> bool:
+    """Run tools/resize_roblox.ps1 (give a width, a height, or both; the other follows from 16:9). True if it ran."""
+    size = [x for flag, n in (("-Width", width), ("-Height", height)) if n for x in (flag, str(n))]
+    done = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(RESIZE_SCRIPT), *size])
+    return done.returncode == 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from scanner.windows import navigate, screen  # Windows only
 
@@ -53,8 +68,15 @@ def main(argv: list[str] | None = None) -> int:
     args.add_argument("--cycles", type=int, default=0, help="stop after this many passes over targets.csv (0 = until Ctrl+C)")
     args.add_argument("--clear-matches", action="store_true",
                       help="first delete matches.csv and the saved match pictures (old matches); then scan as usual")
+    args.add_argument("--width", type=int, default=0, help="first resize the Roblox window to this client width (height follows at 16:9)")
+    args.add_argument("--height", type=int, default=0, help="first resize the Roblox window to this client height (width follows at 16:9)")
+    args.add_argument("--snipe", action="store_true",
+                      help="on the first match: Teleport, buy it from the stall, put your stall up again, then stop")
     a = args.parse_args(argv)
     cfg = load_config()
+    if (a.width or a.height) and not resize_roblox(a.width, a.height):
+        print("Could not resize the Roblox window (is it open and not fullscreen?)")
+        return 2
     if a.clear_matches:
         print(f"Cleared matches.csv and {clear_matches(cfg.output_dir)} match picture(s).")
     hwnd = screen.find_roblox()
@@ -69,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(cfg.output_dir)
     setup_run_log(out)
     searched, failures = None, 0  # searched: the skin whose search text is still in the box
+    picked = None  # (category, rarity) the buttons were last set to by a good scan
     passes = 0
     try:
         while not a.cycles or passes < a.cycles:
@@ -80,11 +103,16 @@ def main(argv: list[str] | None = None) -> int:
             for target in targets:
                 _wait_for_focus(hwnd, screen)  # pause here while you are in another window
                 try:
-                    code, ok = scan_once._run_once(hwnd, cfg, out, target, True, searched == target.skin_name)
+                    code, ok = scan_once._run_once(hwnd, cfg, out, target, True, searched == target.skin_name,
+                                                    picked == (target.category, target.rarity), a.snipe)
                 except Exception:  # one bad read or screen must not end an unattended run: count it as a failed scan
                     logging.getLogger(__name__).exception("%s: the scan crashed", target.skin_name)
                     code, ok = 1, False
+                if code == scan_once.TELEPORTED:
+                    print(f"Teleported for {target.skin_name}. Stopping the loop: it is your turn.")
+                    return 0
                 searched = target.skin_name if ok and not code else None  # after a failure, search again
+                picked = (target.category, target.rarity) if ok and not code else None  # and click the buttons again
                 if code and not screen.is_focused(hwnd):  # focus was lost mid-scan: not a failed screen
                     continue
                 failures = failures + 1 if code else 0
