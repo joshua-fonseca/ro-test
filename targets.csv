@@ -1,7 +1,7 @@
 skin_name,category,rarity,max_price,max_serial,enabled
-Starveil AWP,Sniper,Limited,5000,10,false
-Nya Reaper,Knife,Secret,99999000,1,true
-Noire Nya Reaper,Knife,Secret,99999000,1,false
+Starveil AWP,Sniper,Limited,5000,10,true
+Nya Reaper,Knife,Secret,8200,,true
+Noire Nya Reaper,Knife,Secret,14000,100,true
 Wild Fiend Crossbow,Sniper,Limited,99999999,1,false
 9D Mallow,Sniper,Limited,99999999,1,false
 Nocturne Marlin [Rainbow],Sniper,Secret,99999999,1,false
