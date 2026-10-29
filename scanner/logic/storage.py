@@ -74,6 +74,24 @@ def format_match_line(target: Target, listing: Listing, screenshot_path: str) ->
     return f"[{target.rarity.upper()}] [{target.skin_name}] [{serial}] [{price}] [{screenshot_path}]"
 
 
+def clear_matches(output_dir: str | Path) -> int:
+    """Forget the old matches: delete matches.csv and the saved match pictures, and mark every remembered listing as
+    not matching, so a card that still qualifies is reported again. listings.csv, scan_log.csv and the rest stay.
+    Returns how many pictures were deleted."""
+    out = Path(output_dir)
+    (out / "matches.csv").unlink(missing_ok=True)
+    shots = list((out / "screenshots" / "matches").glob("*.png"))
+    for p in shots:
+        p.unlink()
+    state_path = out / "listing_state.json"
+    if state_path.exists():
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        for entry in state.values():
+            entry["matching"] = False
+        state_path.write_text(json.dumps(state, indent=1), encoding="utf-8")
+    return len(shots)
+
+
 class Store:
     def __init__(self, output_dir: str | Path):
         self.dir = Path(output_dir)

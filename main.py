@@ -6,6 +6,7 @@ searching again; a different skin is searched for. The next pass starts at once:
 It clicks and types the same way as `scan_once.py --navigate` and never clicks Teleport, buy, trade or payment
 buttons. Matches are printed and saved under output/. Stops by itself after 3 failed scans in a row.
     python main.py
+    python main.py --clear-matches    first delete matches.csv and the saved match pictures
 """
 import argparse
 import logging
@@ -16,7 +17,7 @@ from pathlib import Path
 import scan_once
 from scanner.logic.config import load_config
 from scanner.logic.models import load_targets
-from scanner.logic.storage import setup_run_log
+from scanner.logic.storage import clear_matches, setup_run_log
 
 MAX_FAILURES = 3  # in a row: the screen is probably not what we think; stop clicking
 
@@ -41,8 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     args = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     args.add_argument("--wait", type=int, default=30, help="seconds to wait for you to click Roblox")
     args.add_argument("--cycles", type=int, default=0, help="stop after this many passes over targets.csv (0 = until Ctrl+C)")
+    args.add_argument("--clear-matches", action="store_true",
+                      help="first delete matches.csv and the saved match pictures (old matches); then scan as usual")
     a = args.parse_args(argv)
     cfg = load_config()
+    if a.clear_matches:
+        print(f"Cleared matches.csv and {clear_matches(cfg.output_dir)} match picture(s).")
     hwnd = screen.find_roblox()
     if hwnd is None:
         print("Roblox window not found")

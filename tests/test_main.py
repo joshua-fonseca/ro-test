@@ -112,3 +112,11 @@ def test_a_scan_that_crashes_counts_as_a_failure_and_the_loop_goes_on(monkeypatc
     monkeypatch.setattr(scan_once, "_run_once", crash_first)
     assert main.main([]) == 130
     assert backs == [1] and [c[2] for c in calls] == [False, True]  # cleaned up and searched again; the next good scan reopens
+
+
+def test_clear_matches_flag_clears_before_scanning(monkeypatch, tmp_path, capsys):
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)])
+    (tmp_path / "output").mkdir()
+    (tmp_path / "output" / "matches.csv").write_text("x")
+    assert main.main(["--clear-matches"]) == 130
+    assert not (tmp_path / "output" / "matches.csv").exists() and "Cleared matches.csv" in capsys.readouterr().out

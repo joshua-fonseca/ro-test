@@ -187,3 +187,21 @@ def test_unreadable_price_does_not_reset_match_state(tmp_path):
         s.end_cycle()
     assert notified == [True, False, False]
     assert len(rows(tmp_path / "matches.csv")) == 1
+
+
+def test_clear_matches_removes_matches_and_pictures_and_lets_a_card_match_again(tmp_path):
+    from scanner.logic.storage import clear_matches
+    store = Store(tmp_path)
+    store.begin_cycle("c1")
+    listing = Listing(8700, 610, False)
+    crop = lambda: ("shot.png", "ok")  # noqa: E731
+    assert store.record(NOW, TARGET, listing, True, crop)
+    (tmp_path / "screenshots" / "matches").mkdir(parents=True)
+    (tmp_path / "screenshots" / "matches" / "a.png").write_bytes(b"x")
+    assert clear_matches(tmp_path) == 1
+    assert not (tmp_path / "matches.csv").exists() and not list((tmp_path / "screenshots" / "matches").glob("*.png"))
+    assert (tmp_path / "listings.csv").exists()  # the history stays
+    again = Store(tmp_path)  # a new run: the same card still qualifies and is reported again
+    again.begin_cycle("c2")
+    assert again.record(NOW, TARGET, listing, True, crop)
+    assert clear_matches(tmp_path / "nothing-here") == 0  # a missing folder is fine
