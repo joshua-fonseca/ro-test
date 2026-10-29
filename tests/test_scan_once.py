@@ -289,3 +289,35 @@ def test_one_notch_shift_is_measured_from_two_frames():
     px, err = scan_once._shift(*imgs)
     assert px == 150 and err < 12  # one notch on this 1920x1166 window
     assert scan_once._shift(imgs[0], imgs[0])[1] >= 12  # the list did not move: a bad match, so no calibration
+
+
+def _notches_asked(monkeypatch, tmp_path, bad_first_scroll=False):
+    """Run a calibrating scan_list over the saved frames; return the scroll sizes it asked for (and stop at price)."""
+    import scan_once
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(scan_once, "_steps", {})
+    frames, asked, first = _frames(FRAMES), [], [True]  # first: the next measurement is the bad one
+
+    def next_frame(notches):
+        asked.append(notches)
+        return frames(notches)
+    real = scan_once._shift
+    monkeypatch.setattr(scan_once, "_shift", lambda a, b: (300, 50.0) if bad_first_scroll and first.pop() else real(a, b))
+    target = Target("Starveil AWP", "Sniper", "Limited", 9000, 0, True)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    scan_list(cv2.imread(FRAMES[0]), next_frame, target, store, tmp_path / "output", NOW, at_top=True, calibrate=True)
+    return [n for n in asked if n > 0], scan_once._steps
+
+
+@needs_frames
+def test_the_step_is_chosen_from_the_measured_notch(tmp_path, monkeypatch):
+    asked, steps = _notches_asked(monkeypatch, tmp_path)
+    assert asked[0] == 1 and set(asked[1:]) == {2}  # 150 px a notch in 1166 px: 2 notches stay under the safe 446 px
+    assert list(steps.values()) == [2]
+
+
+@needs_frames
+def test_a_bad_measurement_goes_on_at_two_notches_and_is_not_remembered(tmp_path, monkeypatch):
+    asked, steps = _notches_asked(monkeypatch, tmp_path, bad_first_scroll=True)
+    assert asked[0] == 1 and set(asked[1:]) == {2} and steps == {}

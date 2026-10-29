@@ -181,11 +181,12 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
             break
         if measuring and notches:
             px, err = _shift(before, img)
-            if err < 12 and 0.08 <= px / img.shape[0] <= 0.17:  # a believable match; else keep the safe step, measure again
+            if err < 12 and 0.08 <= px / img.shape[0] <= 0.17:  # a believable match
                 measuring = False
                 step = _steps[key] = max(1, min(STEP, int(SAFE_STEP * img.shape[0] / px)))
                 log.info("one notch moves %d px: %d notches per step", px, step)
-            else:
+            else:  # not cached: the next scan measures again; this one goes on at no more than 2 notches
+                measuring = False
                 step = min(step, 2)
                 log.warning("could not measure the notch (moved %d px, mismatch %.0f): %d notches per step", px, err, step)
         v = _view(img)
