@@ -87,11 +87,11 @@ def test_no_tile_means_no_click(monkeypatch):
     assert navigate.open_results(1, "Starveil AWP")[0] is None and w.clicks == []
 
 
-def test_search_options_for_another_skin_never_gets_the_check(monkeypatch):
+def test_results_of_another_skin_are_closed_and_not_scanned(monkeypatch):
     w = World(monkeypatch, label_ok=False)
     img, why = navigate.open_results(1, "Nya Reaper")
     assert img is None and "not for" in why
-    assert w.clicks == [(110, 220), (410, 520)] and w.state == "collection"  # the tile, then cancel: never the green check
+    assert w.clicks == [(110, 220), (310, 420), (510, 620)] and w.state == "collection"  # tile, check, then close
 
 
 def test_stops_when_search_options_never_opens(monkeypatch):
@@ -198,3 +198,11 @@ def test_back_to_collection_cancels_or_closes_whichever_is_open(monkeypatch):
     assert navigate.back_to_collection(1) and len(w.clicks) == 1  # already there: nothing clicked
     w = World(monkeypatch, state="results")
     assert navigate.back_to_collection(1) and w.clicks == [(510, 620)]
+
+
+def test_a_failed_cleanup_after_the_wrong_skin_is_reported(monkeypatch):
+    w = World(monkeypatch, label_ok=False)
+    monkeypatch.setattr(navigate.screens, "find_close_button", lambda img: None)  # the close button is not found
+    img, why = navigate.open_results(1, "Nya Reaper")
+    assert img is None and "not for" in why and "could not get back" in why
+    assert w.state == "results"  # nothing more was clicked on a screen it could not handle

@@ -33,7 +33,9 @@ log = logging.getLogger(__name__)
 
 # One notch moves the list ~150 px (measured live at 1898x1068 and on the saved frames); the list shows ~540 px and a
 # card is ~170 px, so a step must stay under ~370 px or a card is never fully visible (3 notches skipped two cards).
-STEP = 1  # notches per step
+# The list shows only 2 complete cards at once (193 px apart in a 537 px list), so a window can cover at most 344 px
+# without skipping a card; a notch moves 125-150 px, so 2 notches is the most that is safe (3 skipped cards live).
+STEP = 2  # notches per step
 UP = 10  # notches per step while going back to the top (nothing is read on the way)
 CLEARLY_OVER = 1.1  # a first card this far over max_price ends the scan alone: not a borderline price
 
@@ -311,6 +313,9 @@ def main(argv: list[str] | None = None) -> int:
         deadline = time.time() + a.wait
         while not screen.is_focused(hwnd) and time.time() < deadline:
             time.sleep(0.5)
+        if not screen.is_focused(hwnd):
+            print("Roblox is not in front; nothing was sent.")
+            return 2
     out = Path(cfg.output_dir)
     setup_run_log(out)
     searched = False

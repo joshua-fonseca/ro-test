@@ -34,12 +34,12 @@ def test_visible_cards_are_matched_cropped_and_logged(tmp_path, monkeypatch):
 
 
 def _frames(files):
-    """next_frame over saved frames: each scroll step moves one frame (the frames are ~150 px apart)."""
+    """next_frame over saved frames: each notch moves one frame (the frames are ~150 px apart)."""
     pos = 0
 
     def next_frame(notches):
         nonlocal pos
-        pos = min(max(pos + (notches > 0) - (notches < 0), 0), len(files) - 1)
+        pos = min(max(pos + notches, 0), len(files) - 1)
         return cv2.imread(files[pos])
     return next_frame
 
@@ -101,7 +101,7 @@ def test_banner_means_look_again_before_scrolling(tmp_path, monkeypatch):
     target = Target("Starveil AWP", "Sniper", "Limited", 100_000, 0, True)
     r = scan_list(cv2.imread(FRAMES[24]), lambda n: calls.append(n) or frames(n), target, store, tmp_path, NOW)
     assert r["status"] == "complete"
-    assert [n for n in calls if n >= 0][:3] == [0, 0, 1]  # two looks while the banner is up, then the scroll
+    assert [n for n in calls if n >= 0][:3] == [0, 0, scan_once.STEP]  # two looks while the banner is up, then the scroll
 
 
 @needs_frames

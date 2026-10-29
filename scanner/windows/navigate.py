@@ -131,11 +131,11 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
 def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     """(results screenshot, '') or (None, why it stopped). save(name, img) keeps diagnostics.
 
-    After a search the skin is the first tile of the grid. Search Options must then show that skin's name before the
-    green check is clicked: if it shows another skin, Search Options is cancelled and nothing is opened.
+    After a search the skin is the first tile of the grid, so the tile and the green check are clicked at once from
+    known positions. The Search Options name is checked on the screenshot while the results load: if it was another
+    skin's results that opened, they are closed again and nothing is scanned.
     """
     img = wait_for(hwnd, "collection", 8)
-    img = None if img is None else _settled(hwnd, img)
     if img is None:
         return None, "not on the collection screen"
 
@@ -158,21 +158,20 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     if img is None:
         return None, "Search Options did not open after clicking the tile"
     save("options", img)
-    if not screens.options_is_for(img, skin):  # a click on a moved tile can open another skin
-        cancel = layout.point(img, "options_cancel", lambda: screens.find_options_cancel(img))
-        if cancel is not None and _click(hwnd, cancel, img):
-            wait_for(hwnd, "collection", 4)
-        return None, f"Search Options is not for {skin!r}"
     check = layout.point(img, "check", lambda: screens.find_check_button(img))
     if check is None:
         return None, "no green check found in Search Options"
     if not _click(hwnd, check, img):
         return None, "click not sent (Roblox lost focus, or the window changed size)"
-    img = wait_for(hwnd, "results", 8)
-    if img is None:
+    right_skin = screens.options_is_for(img, skin)  # read while the results load
+    results = wait_for(hwnd, "results", 8)
+    if not right_skin:  # the tile was another skin: close what opened
+        back = back_to_collection(hwnd)
+        return None, f"Search Options was not for {skin!r}" + ("" if back else " (and could not get back to the grid)")
+    if results is None:
         return None, "results list did not open after the green check"
-    save("results", img)
-    return img, ""
+    save("results", results)
+    return results, ""
 
 
 def back_to_collection(hwnd: int) -> bool:
