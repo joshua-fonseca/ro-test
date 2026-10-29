@@ -80,11 +80,12 @@ def test_stops_at_the_cheapest_match(tmp_path, monkeypatch):
 
 
 @needs_frames
-def test_unsorted_list_scrolls_to_the_end(tmp_path, monkeypatch):
-    # Frames walked backwards from the middle: prices fall after 9,500, so the early stop must be switched off
-    r, prices = _scan(tmp_path, monkeypatch, FRAMES[12::-1], 9600)
-    assert (r["status"], r["sorted"]) == ("complete", False)
-    assert sorted(prices)[:3] == [3000, 4000, 4000]
+def test_unsorted_list_turns_the_early_stop_off(tmp_path, monkeypatch):
+    img = cv2.imread(FRAMES[0])  # 3,000 above 4,000; swap them so the frame shows a lower price below a higher one
+    img[347:517], img[542:712] = img[542:712].copy(), img[347:517].copy()
+    cv2.imwrite(str(tmp_path / "swapped.png"), img)
+    r, prices = _scan(tmp_path, monkeypatch, [str(tmp_path / "swapped.png")], 1000)  # both over: would stop if sorted
+    assert (r["status"], r["sorted"], prices) == ("complete", False, [4000, 3000])
 
 
 @needs_frames
@@ -130,3 +131,27 @@ def test_scrolls_past_cheap_high_serials_to_the_first_low_serial(tmp_path, monke
     # 3,000-8,111 all have serials over 600; the first under it is ST.324 at 8,888 (ST.504 at 9,500 if 324 misreads)
     assert (r["status"], r["matches"]) == ("stopped_at_first_match", 1)
     assert prices[0] == 3000 and prices[-1] in (8888, 9500) and len(prices) >= 8
+
+
+@needs_frames
+def test_two_identical_looking_cards_in_one_frame_are_both_read(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    img = cv2.imread(FRAMES[0])
+    img[542:712] = img[347:517]  # same seller, price and serial picture twice in one frame
+    target = Target("Starveil AWP", "Sniper", "Limited", 100_000, 0, True)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    r = scan_visible(img, target, store, tmp_path / "output", NOW, seen=[])
+    assert r["read"] == 2  # the second one used to be dropped as a "repeat" of the first
+
+
+@needs_frames
+def test_list_vanishing_while_going_to_the_top_stops_the_wheel(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    img, calls = cv2.imread(FRAMES[10]), []
+    blank = img * 0  # modal closed: no cards on screen
+    target = Target("Starveil AWP", "Sniper", "Limited", 5000, 10, True)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    r = scan_list(img, lambda n: calls.append(n) or blank, target, store, tmp_path / "output", NOW)
+    assert (r["status"], calls) == ("list_lost", [-10])  # one look, not 300 wheel steps

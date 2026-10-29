@@ -27,12 +27,15 @@ CASES = {
     "starveil_f20": (20, [(12000, (2503, False)), (17000, (1644, False))]),
     # Live 1898x1068: Rope's 7,000 reads '7,000', '7,000', '' and must still give a price.
     "live_empty_price_read": (19, [(5500, (2195, False)), (7000, (740, True))]),
+    # Noir Nya Reaper: rainbow thumbnail border, Japanese seller name, 'k' prices
+    "live_noir_012": (15, [(13500, (73, True)), (13900, (141, True))]),
+    "live_noir_019": (15, [(30000, (25, True)), (85000, (5, False))]),
 }
 
 
 # Serials that read correctly today; losing one is a regression.
 READABLE = {(240, True), (610, False), (291, True), (668, False), (575, False), (744, True), (2248, False),
-            (2503, False), (1644, False)}
+            (2503, False), (1644, False), (73, True), (5, False)}
 
 
 @pytest.mark.parametrize("stamp", CASES)

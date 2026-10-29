@@ -149,8 +149,8 @@ def read_serial(area: np.ndarray) -> tuple[tuple[int, bool] | None, int | None]:
         return None, None
     # Reads at one size agree even when wrong ('1]' merging into ']'); other sizes split glyphs differently.
     texts = [t for h in (60, 90, 120) for t in _ocr(crop, "#ST.0123456789[]", channel=_text_colour, height=h)]
-    # shortcut: tested on 37 serials from 3 skin families (28 read, 0 wrong); add live captures of other skins
-    # before trusting serial-limited targets.
+    # shortcut: tested on 52 serials from 4 skin families (40 read, 0 wrong; Noir Nya Reaper 12 of 15); add live
+    # captures of other skins before trusting serial-limited targets.
     if not all(_SERIAL_STRICT.fullmatch(t) for t in texts):
         return None, None
     lengths = {len(str(parse_serial(t)[0])) for t in texts}
@@ -183,11 +183,12 @@ def read_seller(card_img: np.ndarray) -> str | None:
     return re.sub(r"\s*['’]s\s*stall\W*$", "", text).strip() or None
 
 
-def read_card(img: np.ndarray, box: Box, seen: list | None = None) -> Card:
+def read_card(img: np.ndarray, box: Box, seen: list | None = None, upto: int | None = None) -> Card:
     """Read one card. Clipped cards and unreadable prices/sellers give listing=None.
 
     seen: cards read in earlier frames of one scroll (filled here). A card already there skips the serial OCR
-    and comes back with repeat=True.
+    and comes back with repeat=True. upto: only the first `upto` entries count, so cards read from this same
+    frame are never taken for repeats (two cards in one frame are always two cards).
     """
     if not _is_complete(box):
         return Card(box, False)
@@ -199,8 +200,10 @@ def read_card(img: np.ndarray, box: Box, seen: list | None = None) -> Card:
         return Card(box, True)
     area = _sub(img, box, SERIAL_BOX)
     look = cv2.resize(cv2.cvtColor(area, cv2.COLOR_BGR2GRAY), (64, 20), interpolation=cv2.INTER_AREA).astype(int)
-    for s, p, lk, old in seen or []:
-        # Serial area difference on the 29 scroll frames: same card <= 0.8, other cards >= 1.2
+    for s, p, lk, old in (seen or [])[:upto]:
+        # Serial area difference on the 29 scroll frames: same card <= 0.8, other cards >= 1.2.
+        # shortcut: animated thumbnail borders (Noir Nya Reaper) give the same card up to 2.7, so most repeats are
+        # read again (slower; a differing serial read adds a row); match cards by scroll offset if scans get slow.
         if (s, p) == (seller, price[0]) and np.abs(lk - look).mean() < 1.0:
             return Card(box, True, listing=old, repeat=True)
     stattrak = read_stattrak(area)

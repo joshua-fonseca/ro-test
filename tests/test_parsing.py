@@ -1,6 +1,6 @@
 import pytest
 
-from parsing import format_serial, parse_price, parse_rarity, parse_serial, price_is_approximate
+from parsing import format_serial, parse_price, parse_rarity, parse_serial, price_high, price_is_approximate
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -40,3 +40,11 @@ def test_parse_rarity(tag, expected):
 def test_price_is_approximate_only_for_abbreviated_prices():
     assert price_is_approximate("12.2k") and price_is_approximate("1.5M")
     assert not price_is_approximate("9,949") and not price_is_approximate("8700")
+
+
+def test_price_high_is_the_most_a_cut_off_price_can_mean():
+    assert price_high(11700, True) == 11799  # '11.7k': first three digits kept, the rest cut off
+    assert price_high(10000, True) == 10099  # confirmed in game: 10,099 shows as '10k'
+    assert price_high(117000, True) == 117999
+    assert price_high(1500000, True) == 1509999
+    assert price_high(11749, False) == 11749  # exact prices are exact

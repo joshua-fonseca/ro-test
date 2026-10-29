@@ -22,6 +22,7 @@ from config import load_config
 from cropper import save_crop
 from matcher import matches
 from models import Target, load_targets
+from parsing import price_high
 from storage import Store, setup_run_log
 
 log = logging.getLogger(__name__)
@@ -33,8 +34,8 @@ UP = 10  # notches per step while going back to the top (nothing is read on the 
 
 
 def _over(target: Target, listing) -> bool:
-    # '12.2k' has three significant digits, so it is off by under 1%
-    return target.max_price is not None and listing.price > target.max_price * (1.01 if listing.price_approx else 1)
+    # '11.7k' is at least 11,700 (the game cuts digits off, never rounds up), so the shown price is the lowest
+    return target.max_price is not None and listing.price > target.max_price
 
 
 def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: datetime,
@@ -47,10 +48,12 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
     pil = Image.fromarray(img[:, :, ::-1])  # BGR -> RGB, real captured pixels
     boxes = vision.find_cards(img)
     result = {"cards": len(boxes), "read": 0, "matches": 0, "loading": 0, "unreadable": 0, "clipped": 0,
-              "lines": [], "records": vision.read_record_count(img) if boxes else None, "new": [], "over_pair": False}
-    over = 0
+              "lines": [], "records": vision.read_record_count(img) if boxes else None, "over_pair": False,
+              "unsorted": False}
+    over, lowest = 0, 0  # lowest: the least the cards above can cost
+    earlier = len(seen) if seen is not None else 0
     for box in boxes:
-        card = vision.read_card(img, box, seen)
+        card = vision.read_card(img, box, seen, earlier)
         if not card.complete:
             result["clipped"] += 1
         elif card.loading:
@@ -64,9 +67,11 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
         # Early stop needs two readable cards in a row over max_price in one frame, so surely two different cards
         over = over + 1 if _over(target, listing) else 0
         result["over_pair"] |= over >= 2
+        # Cheapest first? Checked within this frame, top to bottom: no need to recognise cards across frames
+        result["unsorted"] |= price_high(listing.price, listing.price_approx) < lowest
+        lowest = max(lowest, listing.price)
         if card.repeat:
             continue
-        result["new"].append(listing)
         result["read"] += 1
         ok = matches(target, listing)
         result["matches"] += ok
@@ -111,10 +116,12 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
         if img is None:
             return {**total, "status": "focus_lost"}
         v = _view(img)
+        if v is None:  # the list is gone (closed?): stop sending the wheel anywhere
+            return {**total, "status": "list_lost"}
         still, view = (still + 1 if _same(v, view) else 0), v
         if still >= 2:
             break
-    seen, highest, retries, still = [], None, 0, 0
+    seen, retries, still = [], 0, 0
     for _ in range(max_steps):
         if view is None:
             total["status"] = "list_lost"
@@ -123,14 +130,9 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
         total["frames"] += 1
         for k in ("read", "matches", "unreadable", "lines"):
             total[k] += r[k]
-        for listing in r["new"]:  # cheapest first? one lower price and the early stop is off
-            if highest and listing.price < highest[0] * (0.99 if listing.price_approx or highest[1] else 1):
-                if total["sorted"]:
-                    log.warning("%s: %s after %s, list not sorted by price; scrolling to the end",
-                                target.skin_name, listing.price, highest[0])
-                total["sorted"] = False
-            if not highest or listing.price > highest[0]:
-                highest = (listing.price, listing.price_approx)
+        if r["unsorted"] and total["sorted"]:  # one lower price below a higher one and the early stops are off
+            log.warning("%s: list not sorted by price; scrolling to the end", target.skin_name)
+            total["sorted"] = False
         if total["sorted"] and r["over_pair"]:
             total["status"] = "stopped_at_price"
             break

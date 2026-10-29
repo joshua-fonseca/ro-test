@@ -25,6 +25,11 @@ def price_is_approximate(text: str) -> bool:
     return _ABBREV.fullmatch(text.strip()) is not None
 
 
+def price_high(price: int, approximate: bool) -> int:
+    """Highest price a reading can mean. The game cuts '11,799' down to '11.7k' (first three digits, not rounded)."""
+    return price + 10 ** max(0, len(str(price)) - 3) - 1 if approximate else price
+
+
 def parse_serial(text: str) -> tuple[int, bool] | None:
     """'#610' -> (610, False); '#ST.291' -> (291, True); malformed -> None."""
     m = _SERIAL.fullmatch(text.strip())
