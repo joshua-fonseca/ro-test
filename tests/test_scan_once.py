@@ -45,7 +45,9 @@ def _frames(files):
 
 
 def _scan(tmp_path, monkeypatch, files, max_price, max_serial=0):  # serial 0 never shows: no match, keep scrolling
+    import scan_once
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(scan_once, "STEP", 2)  # these frames are 150 px apart in a 1166-high window: 2 frames = 300 px
     target = Target("Starveil AWP", "Sniper", "Limited", max_price, max_serial, True)
     store = Store(tmp_path / "output")
     store.begin_cycle("c1")
@@ -276,3 +278,14 @@ def test_a_freshly_opened_list_is_not_scrolled_up_first(tmp_path, monkeypatch):
     calls.clear()
     scan_list(img, lambda n: calls.append(n) or img, target, store, tmp_path / "output", NOW)
     assert calls[0] < 0  # an unknown position goes to the top first
+
+
+def test_one_notch_shift_is_measured_from_two_frames():
+    base = "sniper_arena_scanner_handoff/scroll_starveil/f0{}.png"
+    imgs = [cv2.imread(base.format(i)) for i in (0, 1)]
+    if any(i is None for i in imgs):
+        pytest.skip("fixture screenshots missing")
+    import scan_once
+    px, err = scan_once._shift(*imgs)
+    assert px == 150 and err < 12  # one notch on this 1920x1166 window
+    assert scan_once._shift(imgs[0], imgs[0])[1] >= 12  # the list did not move: a bad match, so no calibration

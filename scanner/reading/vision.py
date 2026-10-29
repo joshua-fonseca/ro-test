@@ -37,9 +37,10 @@ _SERIAL_STRICT = re.compile(r"\[#(ST\.)?\d+\]")
 @dataclass(frozen=True)
 class Card:
     box: Box  # for cropper.save_crop
-    complete: bool  # fully inside the list area; clipped cards are never read
+    complete: bool  # readable: whole, or cut off only a little by the list edge (see is_readable)
     listing: Listing | None = None
     repeat: bool = False  # already read in an earlier frame of this scroll (listing is that earlier read)
+    wait: bool = False  # cut off and its serial did not read: a later frame shows it whole (not an unreadable card)
 
 
 def _runs(v: np.ndarray) -> list[tuple[int, int]]:
@@ -68,10 +69,39 @@ def find_cards(img: np.ndarray) -> list[Box]:
     x0, x1 = (int(np.median([r[i] for r in xs])) for i in (0, 1))
     ok = np.array([r is not None and abs(r[0] - x0) <= 3 and abs(r[1] - x1) <= 3 for r in rows])
     min_h = 0.15 * (x1 - x0) / CARD_ASPECT  # drops the thin separator line under the title
-    return [(x0, a, x1, b) for a, b in _runs(ok) if b - a >= min_h]
+    runs: list[list[int]] = []
+    max_h = 1.05 * (x1 - x0) / CARD_ASPECT * 1.012  # joined pieces never make something taller than one card
+    for a, b in _runs(ok):  # gun art sticking out past a card's edge breaks a few rows: join runs <= 12 px apart
+        if runs and a - runs[-1][1] <= 12 and b - runs[-1][0] <= max_h:
+            runs[-1][1] = b
+        else:
+            runs.append([a, b])
+    return [(x0, a, x1, b) for a, b in runs if b - a >= min_h]
 
 
-def _is_complete(box: Box) -> bool:
+# How much of a card the top / bottom edge of the list may cut off and its price / serial still read the same:
+# tested by cutting 16 cards of a saved scroll (price fine to 15% off the top, serial to 25% off the bottom).
+# shortcut: tested on one skin's cards at 1920x1166; retest on other skins and window sizes before widening.
+CLIP_TOP, CLIP_BOTTOM = 0.05, 0.20
+
+
+def full_card(box: Box, list_mid: float) -> Box:
+    """The whole card's box when the edge of the list cuts the card off: the cut side is the one nearer the list's
+    edge (a card in the top half of the list is cut at the top), and the card is as tall as a complete one."""
+    l, t, r, b = box
+    h = round((r - l) / CARD_ASPECT * 1.012)  # complete cards measure 169 px where width / aspect gives 167
+    if b - t >= 0.97 * (r - l) / CARD_ASPECT:
+        return box
+    return (l, b - h, r, b) if (t + b) / 2 < list_mid else (l, t, r, t + h)
+
+
+def is_readable(box: Box, full: Box) -> bool:
+    """True if what the list edge cuts off leaves the price and serial in view."""
+    h = full[3] - full[1]
+    return box[1] - full[1] <= CLIP_TOP * h and full[3] - box[3] <= CLIP_BOTTOM * h
+
+
+def is_complete(box: Box) -> bool:
     l, t, r, b = box
     return (b - t) >= 0.97 * (r - l) / CARD_ASPECT
 
@@ -158,30 +188,41 @@ def read_serial(area: np.ndarray) -> tuple[tuple[int, bool] | None, int | None]:
 def read_price(card_img: np.ndarray) -> tuple[int, bool] | None:
     """(price, approximate) only if at least three reads agree and none disagree; a cut digit still parses."""
     texts = _ocr(card_img, "0123456789,.kKmM")
-    if "" in texts:  # a live 7,000 card read '7,000', '7,000', ''; two variants can agree on a wrong price, so read
+    if "" in texts or len(set(texts)) > 1:  # a live 7,000 card read '7,000', '7,000', ''; two variants can agree on a wrong price, so read
         texts += _ocr(card_img, "0123456789,.kKmM", height=60)  # again at another size, as read_serial does
     texts = [t for t in texts if t]
-    if len(texts) < 3 or len(set(texts)) != 1 or parse_price(texts[0]) is None:
+    best = max(texts, key=lambda t: (texts.count(t) >= 3, len(t)), default=None)  # the longest text read 3+ times
+    # Reads drop a digit ('1k' for '11k') far more often than they invent one, so shorter reads that are the best
+    # text minus some characters do not disagree with it; any other read does
+    if best is None or texts.count(best) < 3 or not all(_is_subsequence(t, best) for t in texts) or parse_price(best) is None:
         return None
-    return parse_price(texts[0]), price_is_approximate(texts[0])
+    return parse_price(best), price_is_approximate(best)
+
+
+def _is_subsequence(short: str, long: str) -> bool:
+    it = iter(long)
+    return all(c in it for c in short)
 
 
 def read_card(img: np.ndarray, box: Box, seen: list | None = None, upto: int | None = None,
-              max_price: int | None = None) -> Card:
-    """Read one card. Clipped cards and unreadable prices give listing=None. The seller is not read: it shows
+              max_price: int | None = None, list_mid: float | None = None) -> Card:
+    """Read one card. Cards cut off too far and unreadable prices give listing=None (complete=False for the first).
+    A card cut off a little by the top or bottom of the list is still read. The seller is not read: it shows
     [Loading...] for a moment and is not needed.
 
     seen: cards read in earlier frames of one scroll (filled here). A card already there skips the serial OCR
     and comes back with repeat=True. upto: only the first `upto` entries count, so cards read from this same
     frame are never taken for repeats (two cards in one frame are always two cards).
     max_price: a card whose price is above it can never match, so its serial is not read (listing.serial=None).
+    list_mid: the middle of the list on screen, to tell a card cut off at the top from one cut off at the bottom.
     """
-    if not _is_complete(box):
+    full = full_card(box, 0.48 * img.shape[0] if list_mid is None else list_mid)
+    if not is_readable(box, full):
         return Card(box, False)
-    price = read_price(_sub(img, box, PRICE_BOX))
+    price = read_price(_sub(img, full, PRICE_BOX))
     if price is None:
         return Card(box, True)
-    area = _sub(img, box, SERIAL_BOX)
+    area = _sub(img, full, SERIAL_BOX)
     look = cv2.resize(cv2.cvtColor(area, cv2.COLOR_BGR2GRAY), (64, 20), interpolation=cv2.INTER_AREA).astype(int)
     for p, lk, old in (seen or [])[:upto]:
         # Serial area difference on the 29 scroll frames: same card <= 0.8, other cards >= 1.2 (with the seller too).
@@ -193,10 +234,12 @@ def read_card(img: np.ndarray, box: Box, seen: list | None = None, upto: int | N
         listing = Listing(price=price[0], serial=None, stattrak=None, price_approx=price[1])
     else:
         stattrak = read_stattrak(area)
-        big_enough = box[2] - box[0] >= MIN_SERIAL_CARD_WIDTH
+        big_enough = full[2] - full[0] >= MIN_SERIAL_CARD_WIDTH
         serial, digits = read_serial(area) if big_enough else (None, None)
         if serial and serial[1] != stattrak:  # text says ST but colour says plain, or the reverse: trust neither
             serial = stattrak = digits = None
+        if serial is None and full != box:  # cut off and no serial: a later frame shows it whole, so don't keep a ghost
+            return Card(box, True, wait=True)
         listing = Listing(price=price[0], serial=serial[0] if serial else None, stattrak=stattrak,
                           price_approx=price[1], serial_digits=None if serial else digits)
     if seen is not None:

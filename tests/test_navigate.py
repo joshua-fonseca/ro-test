@@ -29,8 +29,8 @@ class World:
         m.setattr(navigate.screens, "find_category_button", lambda img, c: (70, 80) if c == "Knife" else None)
         m.setattr(navigate.screens, "search_caret", lambda img: self.caret)
         m.setattr(navigate.screens, "search_has_text", lambda img: self.box_text)
-        m.setattr(navigate.controller, "backspace", self._backspace)
-        m.setattr(navigate.screens, "find_skin_tile", lambda img, name: (100, 200) if self.tile else None)
+        m.setattr(navigate.controller, "clear_box", self._backspace)
+        m.setattr(navigate.screens, "find_first_tile", lambda img: (100, 200) if self.tile else None)
         m.setattr(navigate.screens, "options_is_for", lambda img, name: self.label_ok)
         m.setattr(navigate.screens, "find_check_button", lambda img: (300, 400) if self.state == "options" else None)
         m.setattr(navigate.screens, "find_options_cancel", lambda img: (400, 500) if self.state == "options" else None)
@@ -115,12 +115,12 @@ def test_a_banner_over_the_screen_is_waited_out_before_closing(monkeypatch):
 
 def test_no_click_if_the_window_changed_size_since_the_screenshot(monkeypatch):
     w = World(monkeypatch)
-    real_find = navigate.screens.find_skin_tile
+    real_find = navigate.screens.find_first_tile
 
-    def resized_during_ocr(img, name):  # the user drags the window while the tile is being read
+    def resized_during_ocr(img):  # the user drags the window while the tile is being read
         w.size = (1600, 900)
-        return real_find(img, name)
-    monkeypatch.setattr(navigate.screens, "find_skin_tile", resized_during_ocr)
+        return real_find(img)
+    monkeypatch.setattr(navigate.screens, "find_first_tile", resized_during_ocr)
     img, why = navigate.open_results(1, "Starveil AWP")
     assert img is None and "window changed size" in why and w.clicks == []
 
@@ -156,7 +156,7 @@ def test_unknown_category_stops_before_any_click(monkeypatch):
 def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
     w = World(monkeypatch, size=(1900, 1069))
     asked = []
-    monkeypatch.setattr(navigate.screens, "find_skin_tile", lambda img, name: asked.append(name) or (614, 274))
+    monkeypatch.setattr(navigate.screens, "find_first_tile", lambda img: asked.append(1) or (614, 274))
     monkeypatch.setattr(navigate.screens, "find_check_button", lambda img: (1036, 725))
     steps = iter(["options", "results"] * 2)
 
@@ -169,13 +169,13 @@ def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
     first = w.clicks[:]
     w.state = "collection"
     assert navigate.open_results(1, "Nya Reaper")[0] is not None
-    assert asked == ["Nya Reaper"]  # the finder was only asked the first time
+    assert asked == [1]  # the finder was only asked the first time
     assert w.clicks[2:] == first and first[0] == (10 + 614, 20 + 274) and first[1] == (10 + 1036, 20 + 725)
 
 
 def test_a_fixed_point_that_the_finder_disagrees_with_is_not_used(monkeypatch):
     w = World(monkeypatch, size=(1900, 1069))
-    monkeypatch.setattr(navigate.screens, "find_skin_tile", lambda img, name: (900, 600))  # far from the fixed point
+    monkeypatch.setattr(navigate.screens, "find_first_tile", lambda img: (900, 600))  # far from the fixed point
     navigate.open_results(1, "Nya Reaper")
     assert w.clicks[0] == (10 + 900, 20 + 600)  # the finder's point, because the layout is off
 

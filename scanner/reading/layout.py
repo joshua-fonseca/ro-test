@@ -43,3 +43,17 @@ def point(img: np.ndarray, name: str, finder: Callable[[], Point | None]) -> Poi
         return None
     _agreed[key] = abs(found[0] - fixed[0]) <= TOLERANCE * w and abs(found[1] - fixed[1]) <= TOLERANCE * w
     return fixed if _agreed[key] else found
+
+
+def from_sibling(img: np.ndarray, name: str, find: Callable[[str], Point | None]) -> Point | None:
+    """The finder for a category button: its own point, else (when the mouse hovers a neighbour, which grows and
+    merges with it) the fixed point, if another category button is found where the fixed points say it should be."""
+    own = find(name)
+    if own is not None or not is_16_9(img):
+        return own
+    h, w = img.shape[:2]
+    for other in (n for n in FIXED if n.startswith("category:") and n != name):
+        found = find(other)
+        if found and abs(found[0] - FIXED[other][0] * w) <= TOLERANCE * w and abs(found[1] - FIXED[other][1] * h) <= TOLERANCE * w:
+            return int(FIXED[name][0] * w), int(FIXED[name][1] * h)
+    return None

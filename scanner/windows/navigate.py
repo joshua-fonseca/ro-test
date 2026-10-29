@@ -68,7 +68,8 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
     key presses."""
     img = wait_for(hwnd, "collection", 8)  # 8 s: an in-game "X bought Y" banner can cover the screen for ~6 s
     if category and img is not None:
-        point = layout.point(img, f"category:{category}", lambda: screens.find_category_button(img, category))
+        point = layout.point(img, f"category:{category}", lambda: layout.from_sibling(
+            img, f"category:{category}", lambda name: screens.find_category_button(img, name.split(":")[1])))
         if point is None:
             save("no_category", img)
             return False, f"no {category!r} button on the collection screen"
@@ -77,6 +78,8 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         img = wait_for(hwnd, "collection", 8)  # the search box does not move with the category
     point = None if img is None else layout.point(img, "search_box", lambda: screens.find_search_box(img))
     if point is None:
+        if img is not None:
+            save("no_search_box", img)
         return False, "no search box on the collection screen"
     if not _click(hwnd, point, img):
         return False, "click not sent (Roblox lost focus, or the window changed size)"
@@ -84,14 +87,20 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
     if img is None:
         return False, "Roblox lost focus"
     save("search_clicked", img)
-    for _ in range(2):  # left over from the last skin; Backspace is harmless if the box isn't focused yet
+    for _ in range(4):  # left over from the last skin; Backspace is harmless if the box isn't focused yet
         if not screens.search_has_text(img):
             break
-        controller.backspace(hwnd, 40)
-        img = screen.capture(hwnd)
-        if img is None:
+        if not controller.clear_box(hwnd, 40):
             return False, "Roblox lost focus"
+        for _ in range(6):  # the box shows the deletions a moment later; some keys may also have been missed
+            time.sleep(0.05)
+            img = screen.capture(hwnd)
+            if img is None:
+                return False, "Roblox lost focus"
+            if not screens.search_has_text(img):
+                break
     if screens.search_has_text(img):
+        save("search_not_cleared", img)
         return False, "could not clear the search box"
     for _ in range(16):  # the cursor blinks: look for it over about 2 s
         img = screen.capture(hwnd)
@@ -140,7 +149,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         return None, "not on the collection screen"
 
     def first_tile(img):
-        return layout.point(img, "first_tile", lambda: screens.find_skin_tile(img, skin))
+        return layout.point(img, "first_tile", lambda: screens.find_first_tile(img))
     tile = first_tile(img)
     for _ in range(2):  # the grid is still narrowing while the name was typed: look again
         if tile is not None:

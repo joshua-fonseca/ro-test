@@ -33,9 +33,11 @@ log = logging.getLogger(__name__)
 
 # One notch moves the list ~150 px (measured live at 1898x1068 and on the saved frames); the list shows ~540 px and a
 # card is ~170 px, so a step must stay under ~370 px or a card is never fully visible (3 notches skipped two cards).
-# The list shows only 2 complete cards at once (193 px apart in a 537 px list), so a window can cover at most 344 px
-# without skipping a card; a notch moves 125-150 px, so 2 notches is the most that is safe (3 skipped cards live).
-STEP = 2  # notches per step
+# Cards are 193 px apart in a 537 px list, and a card is read while at most 5% of its top or 20% of its bottom is cut
+# off (about 127 px of it must show), so a step can be up to 537 - 127 = 410 px without skipping a card. A notch moves
+# 125 px on a 1900x1069 window: 3 notches = 375 px. (3 notches skipped cards before, when only whole cards were read.)
+# shortcut: the notch size was measured on one window size; re-measure it (and the list height) if the window changes.
+STEP = 3  # notches per step
 UP = 10  # notches per step while going back to the top (nothing is read on the way)
 CLEARLY_OVER = 1.1  # a first card this far over max_price ends the scan alone: not a borderline price
 
@@ -60,7 +62,7 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
     earlier = len(seen) if seen is not None else 0
     for box in boxes:
         card = vision.read_card(img, box, seen, earlier, target.max_price)
-        if not card.complete:
+        if not card.complete or card.wait:
             result["clipped"] += 1
         elif card.listing is None:
             result["unreadable"] += 1
@@ -104,8 +106,25 @@ def _same(a, b) -> bool:
     return a is not None and b is not None and a[0] == b[0] and np.abs(a[1] - b[1]).mean() < 2
 
 
+SAFE_STEP = 0.383  # of the window height: 410 px at 1069, the most a step can cover without skipping a card
+_steps: dict[tuple[int, int], int] = {}  # (width, height) -> notches per step, measured once per run
+
+
+def _shift(a: np.ndarray, b: np.ndarray) -> tuple[int, float]:
+    """(px, mismatch): how far the card list moved up from frame a to frame b after ONE notch, the best match among
+    0.05-0.23 of the height (a range narrower than a card, so repeating cards cannot be taken for each other), and how
+    badly the frames still differ there (large if the list did not move or the frames are unrelated)."""
+    h, w = a.shape[:2]
+    y0, y1, x0, x1 = int(0.232 * h), int(0.734 * h), int(0.33 * w), int(0.69 * w)
+    ga, gb = (cv2.cvtColor(i[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY).astype(int) for i in (a, b))
+    cands = range(int(0.05 * h), int(0.23 * h))
+    errs = {s: np.abs(ga[s:] - gb[:len(gb) - s]).mean() for s in cands}
+    best = min(errs, key=errs.get)
+    return best, errs[best]
+
+
 def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Path, now: datetime,
-              max_steps: int = 300, at_top: bool = False) -> dict:
+              max_steps: int = 300, at_top: bool = False, calibrate: bool = False) -> dict:
     """Go to the top of the list, then read it down to the end or until prices pass max_price. No Windows calls.
 
     at_top: the list was just opened, so it is already at the top: no scrolling up first.
@@ -128,6 +147,9 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
         if still >= 2:
             break
     seen, retries, still = [], 0, 0
+    key = (img.shape[1], img.shape[0])
+    step = _steps.get(key, STEP)
+    measuring = calibrate and key not in _steps  # a notch is 125-150 px depending on the window: measure it first
     for _ in range(max_steps):
         if view is None:
             total["status"] = "list_lost"
@@ -151,11 +173,21 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
             time.sleep(1)
             notches = 0
         else:
-            retries, notches = 0, STEP
+            retries, notches = 0, (1 if measuring else step)
+        before = img
         img = next_frame(notches)
         if img is None:
             total["status"] = "focus_lost"
             break
+        if measuring and notches:
+            px, err = _shift(before, img)
+            if err < 12 and 0.08 <= px / img.shape[0] <= 0.17:  # a believable match; else keep the safe step, measure again
+                measuring = False
+                step = _steps[key] = max(1, min(STEP, int(SAFE_STEP * img.shape[0] / px)))
+                log.info("one notch moves %d px: %d notches per step", px, step)
+            else:
+                step = min(step, 2)
+                log.warning("could not measure the notch (moved %d px, mismatch %.0f): %d notches per step", px, err, step)
         v = _view(img)
         if notches:
             still = still + 1 if _same(v, view) else 0
@@ -175,7 +207,7 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
     def next_frame(notches: int) -> np.ndarray | None:
         nonlocal last, point
         if notches:
-            cards = [b for b in vision.find_cards(last) if vision._is_complete(b)] if last is not None else []
+            cards = [b for b in vision.find_cards(last) if vision.is_complete(b)] if last is not None else []
             if cards:  # none (banner): keep the last point; a list that is really gone ends as list_lost
                 l, t, r, b = cards[0]
                 x0, y0 = screen.client_rect(hwnd)[:2]
@@ -238,6 +270,11 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             old.unlink()
         next_frame = _live_frames(hwnd, frames_dir)
         img = next_frame(0)
+        for _ in range(30):  # a long list takes a moment to draw its first cards after it opens
+            if img is None or any(vision.is_complete(b) for b in vision.find_cards(img)):
+                break
+            time.sleep(0.1)
+            img = next_frame(0)
         if img is None:
             print("Roblox is not in front (or minimized); nothing captured")
             return 2, navigated
@@ -246,12 +283,12 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             return 2, navigated
 
         Image.fromarray(img[:, :, ::-1]).save(out / "last_capture.png")  # diagnostics: what the scan saw
-        if not any(vision._is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
+        if not any(vision.is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
             print("No results list on screen; nothing recorded")
             store.log_scan(now, target, "no_results_visible")
             return 1, navigated
         print("Scrolling the list: hands off the mouse; click another window to stop.")
-        r = scan_list(img, next_frame, target, store, out, now, at_top=navigated)
+        r = scan_list(img, next_frame, target, store, out, now, at_top=navigated, calibrate=True)
         if r["status"] == "complete":
             store.end_cycle()  # only a full scroll saw every listing; an early stop must not mark the rest unseen
         store.log_scan(now, target, r["status"], r["read"], r["matches"],

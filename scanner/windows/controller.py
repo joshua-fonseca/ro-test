@@ -13,7 +13,7 @@ import time
 from scanner.windows import screen
 
 MOVE, LEFT_DOWN, LEFT_UP, WHEEL = 0x0001, 0x0002, 0x0004, 0x0800  # mouse_event flags
-KEY_UP, SHIFT, CONTROL, BACKSPACE, V = 0x0002, 0x10, 0x11, 0x08, 0x56  # keybd_event flag, virtual keys
+KEY_UP, SHIFT, CONTROL, BACKSPACE, V, DELETE = 0x0002, 0x10, 0x11, 0x08, 0x56, 0x2E  # keybd_event flag, virtual keys
 NOTCH = 120
 
 if sys.platform == "win32":
@@ -140,3 +140,9 @@ def paste_text(hwnd: int, text: str) -> bool:
 def backspace(hwnd: int, times: int) -> bool:
     """Press Backspace `times` times. It deletes in a focused text box and does nothing in the game itself."""
     return all(_tap(hwnd, BACKSPACE) for _ in range(times))
+
+
+def clear_box(hwnd: int, times: int) -> bool:
+    """Empty the text box that has focus: Backspace deletes left of the cursor and Delete right of it (a click leaves the
+    cursor wherever it landed, and Roblox ignores End). Both do nothing in the game itself."""
+    return backspace(hwnd, times) and all(_tap(hwnd, DELETE) for _ in range(times))

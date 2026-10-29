@@ -155,3 +155,8 @@ def test_paste_sends_nothing_when_the_clipboard_is_busy_and_releases_ctrl_if_foc
     monkeypatch.setattr(controller, "_set_clipboard", lambda text: True)
     ok, events = _run(monkeypatch, 1, lambda: controller.paste_text(1, "x"))  # focus gone after Ctrl went down
     assert not ok and events[0] == ("key", 0x11, 0) and events[-1] == ("key", 0x11, 2)
+
+
+def test_clear_box_presses_backspace_then_delete_and_releases_everything(monkeypatch):
+    ok, events = _run(monkeypatch, 100, lambda: controller.clear_box(1, 1))
+    assert ok and events == [("key", 8, 0), ("key", 8, 2), ("key", 0x2E, 0), ("key", 0x2E, 2)]

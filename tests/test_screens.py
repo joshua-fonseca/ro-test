@@ -104,3 +104,30 @@ def test_a_tile_cut_off_at_the_edge_is_skipped_not_a_crash():
     img[:, :, :] = img  # same frame; move the search area so the tile's label falls outside it
     h, w = img.shape[:2]
     assert screens._tiles_named(img, "Nya Reaper", (int(0.28 * w), int(0.18 * h), int(0.84 * w), int(0.28 * h))) == []
+
+
+def test_first_tile_is_found_by_shape_even_when_its_name_cannot_be_read():
+    base = "sniper_arena_scanner_handoff/"
+    x, y = screens.find_first_tile(load(base + "live_crossbow_tile.png"))  # long name in small letters under gun art
+    assert 531 <= x <= 694 and 190 <= y <= 355
+    x, y = screens.find_first_tile(load(base + "live_knife_tiles.png"))  # two tiles: the left one
+    assert 531 <= x <= 694
+    assert screens.find_first_tile(load(base + "live_options_knife.png")) is None  # not the collection screen
+
+
+def test_a_long_name_under_gun_art_is_read_in_search_options():
+    img = load("sniper_arena_scanner_handoff/live_options_crossbow.png")
+    assert screens.options_is_for(img, "Wild Fiend Crossbow") and not screens.options_is_for(img, "Wild Fiend")
+
+
+def test_a_short_name_over_gun_art_is_read_in_search_options():
+    img = load("sniper_arena_scanner_handoff/live_options_mallow.png")
+    assert screens.options_is_for(img, "9D Mallow") and not screens.options_is_for(img, "Wild Fiend Crossbow")
+
+
+def test_a_hovered_category_button_that_merges_with_its_neighbour_still_gives_the_fixed_point():
+    from scanner.reading import layout
+    img = load("sniper_arena_scanner_handoff/live_sniper_hover.png")  # Sniper grown by the mouse: Sniper and Knife unreadable
+    assert screens.find_category_button(img, "Knife") is None
+    x, y = layout.from_sibling(img, "category:Knife", lambda n: screens.find_category_button(img, n.split(":")[1]))
+    assert abs(x - 0.0942 * img.shape[1]) < 2 and abs(y - 0.2703 * img.shape[0]) < 2

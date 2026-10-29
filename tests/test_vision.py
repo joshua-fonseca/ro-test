@@ -8,6 +8,13 @@ from scanner.reading import vision  # noqa: E402
 FIX = "sniper_arena_scanner_handoff/*{}.png"
 
 
+def load_path(path):
+    img = cv2.imread(path)
+    if img is None:
+        pytest.skip("fixture screenshots missing")
+    return img
+
+
 def load(stamp):
     files = glob.glob(FIX.format(stamp))
     if not files:
@@ -84,7 +91,7 @@ def test_a_loading_seller_does_not_matter():
 
 def test_a_card_over_max_price_skips_its_serial():
     img = load("125355")
-    box = next(b for b in vision.find_cards(img) if vision._is_complete(b))
+    box = next(b for b in vision.find_cards(img) if vision.is_complete(b))
     full = vision.read_card(img, box).listing
     over = vision.read_card(img, box, max_price=full.price - 1).listing
     assert over.price == full.price and over.serial is None  # never read: it cannot match
@@ -101,7 +108,7 @@ def test_small_window_leaves_serials_unreadable():
 
 def test_text_and_colour_disagreeing_keeps_neither(monkeypatch):
     img = load("125355")
-    box = [b for b in vision.find_cards(img) if vision._is_complete(b)][0]  # #610, plain, reads exactly
+    box = [b for b in vision.find_cards(img) if vision.is_complete(b)][0]  # #610, plain, reads exactly
     assert vision.read_card(img, box).listing.serial == 610
     monkeypatch.setattr(vision, "read_stattrak", lambda area: True)  # colour now claims StatTrak
     listing = vision.read_card(img, box).listing
@@ -111,3 +118,48 @@ def test_text_and_colour_disagreeing_keeps_neither(monkeypatch):
 def test_announcement_banner_is_detected():
     assert vision.has_banner(load("live_banner"))  # "X bought Y" band across the top of the list
     assert not vision.has_banner(load("nya_reaper"))  # same list, no banner
+
+
+def test_a_card_cut_off_a_little_is_read_but_one_cut_off_a_lot_is_not():
+    base = "sniper_arena_scanner_handoff/scroll_noire_1069/"
+    third = vision.find_cards(load_path(base + "001.png"))[-1]  # the third card, cut off at the bottom by 8%
+    img1, img2 = load_path(base + "001.png"), load_path(base + "002.png")
+    cut = vision.read_card(img1, third, list_mid=516, max_price=10**9)
+    whole = vision.read_card(img2, vision.find_cards(img2)[1], list_mid=516, max_price=10**9)
+    assert cut.complete and cut.listing and (cut.listing.price, cut.listing.serial) == (9999, 628)
+    assert (whole.listing.price, whole.listing.serial) == (9999, 628)  # the same card, whole, one step later
+    top = vision.find_cards(img2)[0]  # cut off at the top by 36%: the price is gone
+    assert not vision.read_card(img2, top, list_mid=516).complete
+
+
+def test_full_card_puts_back_the_cut_off_part():
+    box = (100, 248, 872, 356)  # a card 108 px tall at the top of the list: cut at the top
+    assert vision.full_card(box, 516) == (100, 356 - 169, 872, 356)
+    box = (100, 687, 872, 785)  # in the bottom half: cut at the bottom
+    assert vision.full_card(box, 516) == (100, 687, 872, 687 + 169)
+    whole = (100, 301, 872, 470)
+    assert vision.full_card(whole, 516) == whole
+    assert vision.is_readable((100, 630, 872, 785), (100, 630, 872, 799)) and not vision.is_readable(box, (100, 687, 872, 856))
+
+
+def test_a_cut_off_card_with_no_readable_serial_is_left_for_the_next_frame(monkeypatch):
+    base = "sniper_arena_scanner_handoff/scroll_noire_1069/"
+    img = load_path(base + "001.png")
+    third = vision.find_cards(img)[-1]  # cut off at the bottom
+    monkeypatch.setattr(vision, "read_serial", lambda area: (None, None))
+    card = vision.read_card(img, third, list_mid=516, max_price=10**9)
+    assert card.complete and card.wait and card.listing is None
+    whole = vision.find_cards(img)[0]  # a whole card with the same failure is still kept (serial Unknown)
+    assert vision.read_card(img, whole, list_mid=516, max_price=10**9).listing is not None
+
+
+def test_a_price_read_with_a_dropped_digit_still_reads_when_the_full_text_is_read_three_times():
+    img = load_path("sniper_arena_scanner_handoff/live_nya_11k.png")  # 11k read as 11k, 1k, 1k, 11k, 11k, 1k
+    box = vision.find_cards(img)[1]
+    assert vision.read_price(vision._sub(img, box, vision.PRICE_BOX)) == (11000, True)
+
+
+def test_reads_that_disagree_for_real_are_still_refused(monkeypatch):
+    for texts in (["7,000", "7,000", "7,000", "9,000"], ["7,000", "7,000", "1,000"], ["11k", "11k"]):
+        monkeypatch.setattr(vision, "_ocr", lambda *a, texts=texts, **k: list(texts))
+        assert vision.read_price(None) is None

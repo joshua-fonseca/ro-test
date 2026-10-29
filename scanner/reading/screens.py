@@ -4,6 +4,8 @@ Every finder returns a click point only on the screen it belongs to, and None an
 rule for navigation: the green check in Search Options looks like the green Teleport buttons in the results
 list, so a point is never returned unless classify() has first confirmed the right screen.
 """
+import itertools
+
 import cv2
 import numpy as np
 import pytesseract
@@ -172,6 +174,14 @@ def _tiles_named(img: np.ndarray, name: str, box: tuple[int, int, int, int]) -> 
             grey = cv2.resize(label.min(2), None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
             reads = (pytesseract.image_to_string(255 - cv2.threshold(grey, t, 255, cv2.THRESH_BINARY)[1], config="--psm 7")
                      for t in (200, 220, 240))
+            # A long name under gun art ('Wild Fiend Crossbow') only reads from the tight band at a lower threshold
+            def tight_reads(x=x, y=y, tw=tw, tall=tall):  # lazy: only built if the first reads did not match
+                tight = cv2.resize(region[y + int(0.8 * tall):y + int(0.96 * tall), x:x + tw].min(2), None, fx=3, fy=3,
+                                   interpolation=cv2.INTER_CUBIC)
+                for t in (160, 190, 220):
+                    yield pytesseract.image_to_string(255 - cv2.threshold(tight, t, 255, cv2.THRESH_BINARY)[1],
+                                                      config="--psm 7")
+            reads = itertools.chain(reads, tight_reads())
         else:
             # Unowned tiles are dimmed (grey text ~90 on dark red) with a coloured border: keep only grey pixels
             reads = (pytesseract.image_to_string(255 - cv2.resize(
@@ -183,6 +193,23 @@ def _tiles_named(img: np.ndarray, name: str, box: tuple[int, int, int, int]) -> 
                 abs(pt[0] - hx) < tw and abs(pt[1] - hy) < tw for hx, hy in hits):
             hits.append(pt)
     return hits
+
+
+def find_first_tile(img: np.ndarray) -> Point | None:
+    """Centre of the first (top-left) skin tile in the grid, found by its red shape, with no name reading: a long
+    name in small letters under gun art does not read. The caller checks which skin opened (Search Options)."""
+    if classify(img) != "collection":
+        return None
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = int(0.28 * w), int(0.18 * h), int(0.84 * w), int(0.82 * h)
+    region = img[y0:y1, x0:x1]
+    red = ((region[..., 2].astype(int) > 40) & (region[..., 1] < 45) & (region[..., 0] < 45)).astype(np.uint8)
+    red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    tiles = _components(red, int(0.0025 * w * h))
+    if not tiles:
+        return None
+    st, c = min(tiles, key=lambda t: (t[0][1] // 40, t[0][0]))  # top row first, then leftmost
+    return x0 + int(c[0]), y0 + int(c[1])
 
 
 def find_skin_tile(img: np.ndarray, name: str) -> Point | None:
