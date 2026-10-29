@@ -155,3 +155,57 @@ def test_list_vanishing_while_going_to_the_top_stops_the_wheel(tmp_path, monkeyp
     store.begin_cycle("c1")
     r = scan_list(img, lambda n: calls.append(n) or blank, target, store, tmp_path / "output", NOW)
     assert (r["status"], calls) == ("list_lost", [-10])  # one look, not 300 wheel steps
+
+
+def _fake_game(monkeypatch, tmp_path, row="Starveil AWP,Sniper,Limited,5000,,true", nav=None, clicks=None):
+    """Run scan_once.main() against fake screen/navigate modules, from a temp folder holding targets.csv."""
+    import sys
+    import types
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "targets.csv").write_text("skin_name,category,rarity,max_price,max_serial,enabled\n" + row + "\n")
+    frame = cv2.imread(FRAMES[0])
+    monkeypatch.setitem(sys.modules, "screen", types.SimpleNamespace(
+        find_roblox=lambda: 1, is_focused=lambda h: True, capture=lambda h: frame,
+        client_rect=lambda h: (0, 0, 1920, 1166)))
+    monkeypatch.setitem(sys.modules, "controller", types.SimpleNamespace(scroll=lambda *a: True))
+    clicks = [] if clicks is None else clicks
+    monkeypatch.setitem(sys.modules, "navigate", types.SimpleNamespace(
+        search_for=lambda h, s: nav or (True, ""), open_results=lambda h, s: (frame, ""),
+        close_results=lambda h: clicks.append("close") or True))
+    return clicks
+
+
+def _log_statuses(tmp_path):
+    with open(tmp_path / "output" / "scan_log.csv", encoding="utf-8") as f:
+        return [r["status"] for r in csv.DictReader(f)]
+
+
+@needs_frames
+def test_main_refuses_rows_without_a_price_or_switched_off(monkeypatch, tmp_path, capsys):
+    import scan_once
+    _fake_game(monkeypatch, tmp_path, row="Starveil AWP,Sniper,Limited,,,true")
+    assert scan_once.main(["Starveil AWP"]) == 2 and "no max_price" in capsys.readouterr().out
+    _fake_game(monkeypatch, tmp_path, row="Starveil AWP,Sniper,Limited,5000,,false")
+    assert scan_once.main(["Starveil AWP"]) == 2 and "enabled=false" in capsys.readouterr().out
+    assert not (tmp_path / "output").exists()  # refused before anything was touched
+
+
+@needs_frames
+def test_failed_navigation_is_logged_and_closes_nothing(monkeypatch, tmp_path):
+    import scan_once
+    clicks = _fake_game(monkeypatch, tmp_path, nav=(False, "no text cursor in the search box"))
+    assert scan_once.main(["Starveil AWP", "--navigate"]) == 1
+    assert _log_statuses(tmp_path) == ["navigation_failed"] and clicks == []
+
+
+@needs_frames
+def test_a_crash_is_logged_and_the_results_are_still_closed(monkeypatch, tmp_path):
+    import scan_once
+
+    def boom(*a, **k):
+        raise KeyboardInterrupt
+    clicks = _fake_game(monkeypatch, tmp_path)
+    monkeypatch.setattr(scan_once, "scan_list", boom)
+    with pytest.raises(KeyboardInterrupt):
+        scan_once.main(["Starveil AWP", "--navigate"])
+    assert _log_statuses(tmp_path) == ["interrupted"] and clicks == ["close"]

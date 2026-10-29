@@ -1,8 +1,12 @@
-"""Scan the results window that is open now: scroll it top to bottom, match one target, save crops and CSVs.
+"""Scan one skin's results list: scroll it top to bottom, match one target, save crops and CSVs.
 
-You open the skin's results in Roblox yourself; the scan only moves the mouse and turns the wheel over the
-list (no clicks). Run with Windows Python:
+Run with Windows Python. Without --navigate you open the skin's results in Roblox yourself, and the scan only moves
+the mouse and turns the wheel over the list (no clicks):
     python scan_once.py "Starveil AWP"
+With --navigate it starts from the collection screen (empty search box) and also clicks the search box, the skin's
+tile, the green check in Search Options and the red X that closes the results, and types the skin name. It never
+clicks Teleport, buy, trade or payment buttons.
+    python scan_once.py "Starveil AWP" --navigate
 Lists are sorted cheapest first, so the scan stops at the first (cheapest) match, or once prices are past
 max_price (see scan_list).
 """
@@ -199,6 +203,9 @@ def main(argv: list[str] | None = None) -> int:
     args = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     args.add_argument("skin", help="skin_name exactly as in targets.csv")
     args.add_argument("--wait", type=int, default=30, help="seconds to wait for you to click Roblox")
+    args.add_argument("--navigate", action="store_true",
+                      help="search for the skin, open its results, scan, then close them (start on the collection "
+                           "screen with an empty search box); clicks and types")
     a = args.parse_args(argv)
 
     cfg = load_config()
@@ -209,6 +216,9 @@ def main(argv: list[str] | None = None) -> int:
     if not target.enabled:
         print(f"{target.skin_name!r} has enabled=false in {cfg.targets_path}; set it to true to scan it")
         return 2
+    if target.max_price is None:  # not configured: nothing could match, and no early stop would ever fire
+        print(f"{target.skin_name!r} has no max_price in {cfg.targets_path}; set one to scan it")
+        return 2
     hwnd = screen.find_roblox()
     if hwnd is None:
         print("Roblox window not found")
@@ -218,43 +228,61 @@ def main(argv: list[str] | None = None) -> int:
         deadline = time.time() + a.wait
         while not screen.is_focused(hwnd) and time.time() < deadline:
             time.sleep(0.5)
-    frames_dir = Path(cfg.output_dir) / "scan_frames"
-    frames_dir.mkdir(parents=True, exist_ok=True)
-    for old in frames_dir.glob("*.png"):  # only the latest run's frames are kept
-        old.unlink()
-    next_frame = _live_frames(hwnd, frames_dir)
-    img = next_frame(0)
-    if img is None:
-        print("Roblox is not in front (or minimized); nothing captured")
-        return 2
-    if img.shape[1] < cfg.min_window_width:
-        print(f"Roblox is {img.shape[1]} px wide; at least {cfg.min_window_width} is needed")
-        return 2
-
     out = Path(cfg.output_dir)
     setup_run_log(out)
-    Image.fromarray(img[:, :, ::-1]).save(out / "last_capture.png")  # diagnostics: what the scan saw
     store = Store(out)
     now = datetime.now().astimezone()
     store.begin_cycle(now.strftime("%Y%m%dT%H%M%S"))
-    if not any(vision._is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
-        print("No results list on screen; nothing recorded")
-        store.log_scan(now, target, "no_results_visible")
-        return 1
-    print("Scrolling the list: hands off the mouse; click another window to stop.")
-    r = scan_list(img, next_frame, target, store, out, now)
-    if r["status"] == "complete":
-        store.end_cycle()  # only a full scroll saw every listing; an early stop must not mark the rest unseen
-    store.log_scan(now, target, r["status"], r["read"], r["matches"],
-                   f"records_found={r['records']} frames={r['frames']} unreadable_reads={r['unreadable']}"
-                   f" loading={r['loading']} sorted={r['sorted']}")
-    for line in r["lines"]:
-        print(line)
-    print(f"{r['status']}: {r['read']} listing(s) read, {r['matches']} match(es); records found: {r['records']}"
-          + (f"; {r['loading']} still loading when passed" if r["loading"] else "")
-          + (f"; {r['unreadable']} unreadable card read(s)" if r["unreadable"] else "")
-          + ("" if r["sorted"] else "; list was not sorted by price, scrolled to the end"))
-    return 0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1
+    navigated = False
+    if a.navigate:
+        import navigate
+        ok, why = navigate.search_for(hwnd, target.skin_name)
+        opened = navigate.open_results(hwnd, target.skin_name)[0] if ok else None
+        if opened is None:
+            why = why or "the results did not open"
+            print(f"Navigation stopped: {why}")
+            store.log_scan(now, target, "navigation_failed", detail=why)
+            return 1
+        navigated = True
+    try:
+        frames_dir = Path(cfg.output_dir) / "scan_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        for old in frames_dir.glob("*.png"):  # only the latest run's frames are kept
+            old.unlink()
+        next_frame = _live_frames(hwnd, frames_dir)
+        img = next_frame(0)
+        if img is None:
+            print("Roblox is not in front (or minimized); nothing captured")
+            return 2
+        if img.shape[1] < cfg.min_window_width:
+            print(f"Roblox is {img.shape[1]} px wide; at least {cfg.min_window_width} is needed")
+            return 2
+
+        Image.fromarray(img[:, :, ::-1]).save(out / "last_capture.png")  # diagnostics: what the scan saw
+        if not any(vision._is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
+            print("No results list on screen; nothing recorded")
+            store.log_scan(now, target, "no_results_visible")
+            return 1
+        print("Scrolling the list: hands off the mouse; click another window to stop.")
+        r = scan_list(img, next_frame, target, store, out, now)
+        if r["status"] == "complete":
+            store.end_cycle()  # only a full scroll saw every listing; an early stop must not mark the rest unseen
+        store.log_scan(now, target, r["status"], r["read"], r["matches"],
+                       f"records_found={r['records']} frames={r['frames']} unreadable_reads={r['unreadable']}"
+                       f" loading={r['loading']} sorted={r['sorted']}")
+        for line in r["lines"]:
+            print(line)
+        print(f"{r['status']}: {r['read']} listing(s) read, {r['matches']} match(es); records found: {r['records']}"
+              + (f"; {r['loading']} still loading when passed" if r["loading"] else "")
+              + (f"; {r['unreadable']} unreadable card read(s)" if r["unreadable"] else "")
+              + ("" if r["sorted"] else "; list was not sorted by price, scrolled to the end"))
+        return 0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1
+    except BaseException as e:  # a cut-short run still leaves a row in scan_log.csv
+        store.log_scan(now, target, "interrupted" if isinstance(e, KeyboardInterrupt) else "error", detail=repr(e))
+        raise
+    finally:
+        if navigated and not navigate.close_results(hwnd):
+            print("Could not close the results list; close it yourself (red X) before the next run")
 
 
 if __name__ == "__main__":
