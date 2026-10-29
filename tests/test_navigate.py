@@ -65,15 +65,11 @@ class World:
         return True
 
 
-def test_search_types_only_after_the_cursor_is_seen(monkeypatch):
+def test_a_paste_needs_no_cursor_but_typing_does(monkeypatch):
     w = World(monkeypatch, caret=False)
-    saved = []
-    assert navigate.search_for(1, "Starveil AWP", lambda name, img: saved.append(name)) == (
-        False, "no text cursor in the search box; typed nothing")
-    assert saved[-1] == "search_no_cursor"  # the last frame is kept to see why
-    assert w.typed == [] and w.clicks == [(60, 80)]  # clicked the box, typed nothing
-    w = World(monkeypatch)
     assert navigate.search_for(1, "Starveil AWP") == (True, "") and w.pasted == ["Starveil AWP"] and w.typed == []
+    w = World(monkeypatch, caret=False, paste_fails=True)  # the paste did not show: nothing is typed over it
+    assert navigate.search_for(1, "Starveil AWP") == (False, "the pasted name did not show in the search box") and w.typed == []
 
 
 def test_open_results_clicks_tile_then_check(monkeypatch):
@@ -240,3 +236,9 @@ def test_the_rarity_is_looked_at_only_after_the_category_changed_the_grid(monkey
 def test_a_window_that_is_not_16_9_searches_unfiltered(monkeypatch):
     w = World(monkeypatch, size=(1000, 1000))
     assert navigate.search_for(1, "Nya Reaper", rarity="Limited") == (True, "") and w.clicks == [(60, 80)]
+
+
+def test_nothing_is_typed_without_a_cursor_when_the_paste_was_not_possible(monkeypatch):
+    w = World(monkeypatch, caret=False)
+    monkeypatch.setattr(navigate.controller, "paste_text", lambda hwnd, text: False)
+    assert navigate.search_for(1, "Nya Reaper") == (False, "no text cursor in the search box; typed nothing") and w.typed == []

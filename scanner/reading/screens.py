@@ -39,7 +39,7 @@ def _search_bar(img: np.ndarray) -> tuple[int, int, int, int] | None:
     strip = img[y0:, :int(0.7 * w)]
     mask = (np.abs(strip.astype(int) - _SEARCH_BAR).max(2) <= 8).astype(np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 25), np.uint8))
-    bars = [(s, c) for s, c in _components(mask, 10000) if s[2] >= 0.15 * w]
+    bars = [(s, c) for s, c in _components(mask, int(0.004 * w * h)) if s[2] >= 0.15 * w]
     if not bars:
         return None
     s, _ = max(bars, key=lambda b: b[0][4])

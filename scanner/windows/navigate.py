@@ -138,16 +138,6 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
     if screens.search_has_text(img):
         save("search_not_cleared", img)
         return False, "could not clear the search box"
-    for _ in range(16):  # the cursor blinks: look for it over about 2 s
-        img = screen.capture(hwnd)
-        if img is None:
-            return False, "Roblox lost focus"
-        if screens.search_caret(img):
-            break
-        time.sleep(0.1)
-    else:
-        save("search_no_cursor", img)
-        return False, "no text cursor in the search box; typed nothing"
     before = img  # the grid as it was when the box was empty; it changes once the filter applies
     if controller.paste_text(hwnd, skin):  # the whole name at once
         for _ in range(20):  # the pasted text shows within a few frames
@@ -159,8 +149,20 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
             time.sleep(0.05)
         else:  # typing now could double the name if the paste lands late
             return False, "the pasted name did not show in the search box"
-    elif not controller.type_text(hwnd, skin):  # nothing was pasted (clipboard busy): type it key by key
-        return False, "typing stopped (Roblox lost focus, or a character has no key)"
+    else:  # nothing was pasted (clipboard busy): type it key by key, but only once the box shows its cursor, or the
+        # letters would reach the game as key presses (a paste with no focused box does nothing, so it needs no check)
+        for _ in range(16):  # the cursor blinks: look for it over about 2 s
+            img = screen.capture(hwnd)
+            if img is None:
+                return False, "Roblox lost focus"
+            if screens.search_caret(img):
+                break
+            time.sleep(0.1)
+        else:
+            save("search_no_cursor", img)
+            return False, "no text cursor in the search box; typed nothing"
+        if not controller.type_text(hwnd, skin):
+            return False, "typing stopped (Roblox lost focus, or a character has no key)"
     deadline = time.time() + 2
     while time.time() < deadline:
         img = screen.capture(hwnd)

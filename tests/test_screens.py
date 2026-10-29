@@ -153,3 +153,9 @@ def test_a_lit_rarity_button_that_grew_under_the_mouse_still_reads_as_lit():
 def test_small_label_over_red_gun_art_reads_in_search_options():
     img = load("sniper_arena_scanner_handoff/live_options_starember.png")
     assert screens.options_is_for(img, "Starember GM6 Lynx") and not screens.options_is_for(img, "Starfade GM6 Lynx")
+
+
+def test_a_smaller_window_on_another_monitor_is_still_the_collection_screen():
+    img = load("sniper_arena_scanner_handoff/live_small_window_1582.png")  # 1582x911: the search bar's grey band is thin
+    assert screens.classify(img) == "collection" and screens.find_search_box(img) is not None
+    assert screens.find_category_button(img, "Knife") is not None and screens.find_first_tile(img) is not None
