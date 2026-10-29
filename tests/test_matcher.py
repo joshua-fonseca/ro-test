@@ -4,7 +4,7 @@ from models import Listing, Target
 
 def target(**kw):
     base = dict(skin_name="Nocturne Marlin [Rainbow]", category="Sniper", rarity="Secret",
-                max_price=9000, max_serial=None, stattrak=None, enabled=True)
+                max_price=9000, max_serial=None, enabled=True)
     return Target(**{**base, **kw})
 
 
@@ -31,15 +31,6 @@ def test_serial_bound_inclusive_and_unknown_serial_fails():
 def test_blank_serial_bound_accepts_any_including_unknown():
     assert matches(target(), Listing(100, None, False))
     assert matches(target(), Listing(100, 99999, False))
-
-
-def test_stattrak_filters():
-    assert matches(target(stattrak="with"), Listing(100, 1, True))
-    assert not matches(target(stattrak="with"), Listing(100, 1, False))
-    assert not matches(target(stattrak="with"), Listing(100, 1, None))
-    assert matches(target(stattrak="without"), Listing(100, 1, False))
-    assert not matches(target(stattrak="without"), Listing(100, 1, True))
-    assert matches(target(), Listing(100, 1, True)) and matches(target(), Listing(100, 1, False))
 
 
 def test_serial_zero_is_a_real_serial_not_unknown():

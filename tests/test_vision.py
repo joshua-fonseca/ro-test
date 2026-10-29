@@ -25,6 +25,8 @@ CASES = {
     # Ryu's price (8,111) read 8,171 twice and 8,111 once: disagreeing reads must give no listing.
     "starveil_f10": (20, [None, (8888, (324, True))]),
     "starveil_f20": (20, [(12000, (2503, False)), (17000, (1644, False))]),
+    # Live 1898x1068: Rope's 7,000 reads '7,000', '7,000', '' and must still give a price.
+    "live_empty_price_read": (19, [(5500, (2195, False)), (7000, (740, True))]),
 }
 
 

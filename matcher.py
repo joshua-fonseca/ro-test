@@ -7,8 +7,4 @@ def matches(target: Target, listing: Listing) -> bool:
         return False
     if target.max_serial is not None and (listing.serial is None or listing.serial > target.max_serial):
         return False
-    if target.stattrak == "with" and listing.stattrak is not True:
-        return False
-    if target.stattrak == "without" and listing.stattrak is not False:
-        return False
     return True

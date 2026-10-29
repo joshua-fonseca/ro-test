@@ -7,7 +7,6 @@ log = logging.getLogger(__name__)
 
 CATEGORIES = {"Sniper", "Knife"}
 RARITIES = {"Secret", "Limited"}
-STATTRAK_VALUES = {"with", "without"}
 
 
 @dataclass(frozen=True)
@@ -16,8 +15,7 @@ class Target:
     category: str
     rarity: str
     max_price: int | None  # None = not configured, never "unlimited"
-    max_serial: int | None  # None = any serial
-    stattrak: str | None  # None = any variant, else "with" / "without"
+    max_serial: int | None  # None = any serial; no StatTrak filter (user decision 2026-10-28: serial is what matters)
     enabled: bool
 
 
@@ -45,7 +43,6 @@ def _parse_row(row: dict) -> Target:
     skin = (row.get("skin_name") or "").strip()
     category = (row.get("category") or "").strip()
     rarity = (row.get("rarity") or "").strip()
-    stattrak = (row.get("stattrak") or "").strip().lower() or None
     enabled = (row.get("enabled") or "").strip().lower()
     if not skin:
         raise ValueError("empty skin_name")
@@ -53,15 +50,13 @@ def _parse_row(row: dict) -> Target:
         raise ValueError(f"bad category {category!r}")
     if rarity not in RARITIES:
         raise ValueError(f"bad rarity {rarity!r}")
-    if stattrak is not None and stattrak not in STATTRAK_VALUES:
-        raise ValueError(f"bad stattrak {stattrak!r}")
     if enabled not in {"true", "false"}:
         raise ValueError(f"bad enabled {enabled!r}")
     return Target(
         skin, category, rarity,
         _opt_int(row.get("max_price") or ""),
         _opt_int(row.get("max_serial") or ""),
-        stattrak, enabled == "true",
+        enabled == "true",
     )
 
 

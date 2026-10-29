@@ -43,6 +43,7 @@ class Card:
     complete: bool  # fully inside the list area; clipped cards are never read
     loading: bool = False  # seller still shows [Loading...]: wait and retry
     listing: Listing | None = None
+    repeat: bool = False  # already read in an earlier frame of this scroll (listing is that earlier read)
 
 
 def _runs(v: np.ndarray) -> list[tuple[int, int]]:
@@ -159,11 +160,12 @@ def read_serial(area: np.ndarray) -> tuple[tuple[int, bool] | None, int | None]:
 
 
 def read_price(card_img: np.ndarray) -> tuple[int, bool] | None:
-    """(price, approximate) only if every variant reads the same text; a cut digit still parses."""
+    """(price, approximate) only if at least three reads agree and none disagree; a cut digit still parses."""
     texts = _ocr(card_img, "0123456789,.kKmM")
-    # shortcut: one empty read rejects an otherwise agreed price (seen on a 7,000 card); ignore empty reads if
-    # prices go missing in real scans, but keep rejecting disagreeing non-empty reads.
-    if len(set(texts)) != 1 or parse_price(texts[0]) is None:
+    if "" in texts:  # a live 7,000 card read '7,000', '7,000', ''; two variants can agree on a wrong price, so read
+        texts += _ocr(card_img, "0123456789,.kKmM", height=60)  # again at another size, as read_serial does
+    texts = [t for t in texts if t]
+    if len(texts) < 3 or len(set(texts)) != 1 or parse_price(texts[0]) is None:
         return None
     return parse_price(texts[0]), price_is_approximate(texts[0])
 
@@ -181,8 +183,12 @@ def read_seller(card_img: np.ndarray) -> str | None:
     return re.sub(r"\s*['’]s\s*stall\W*$", "", text).strip() or None
 
 
-def read_card(img: np.ndarray, box: Box) -> Card:
-    """Read one card. Clipped cards and unreadable prices/sellers give listing=None."""
+def read_card(img: np.ndarray, box: Box, seen: list | None = None) -> Card:
+    """Read one card. Clipped cards and unreadable prices/sellers give listing=None.
+
+    seen: cards read in earlier frames of one scroll (filled here). A card already there skips the serial OCR
+    and comes back with repeat=True.
+    """
     if not _is_complete(box):
         return Card(box, False)
     seller = read_seller(_sub(img, box, SELLER_BOX))
@@ -192,14 +198,21 @@ def read_card(img: np.ndarray, box: Box) -> Card:
     if seller is None or price is None:
         return Card(box, True)
     area = _sub(img, box, SERIAL_BOX)
+    look = cv2.resize(cv2.cvtColor(area, cv2.COLOR_BGR2GRAY), (64, 20), interpolation=cv2.INTER_AREA).astype(int)
+    for s, p, lk, old in seen or []:
+        # Serial area difference on the 29 scroll frames: same card <= 0.8, other cards >= 1.2
+        if (s, p) == (seller, price[0]) and np.abs(lk - look).mean() < 1.0:
+            return Card(box, True, listing=old, repeat=True)
     stattrak = read_stattrak(area)
     big_enough = box[2] - box[0] >= MIN_SERIAL_CARD_WIDTH
     serial, digits = read_serial(area) if big_enough else (None, None)
     if serial and serial[1] != stattrak:  # text says ST but colour says plain, or the reverse: trust neither
         serial = stattrak = digits = None
-    return Card(box, True, listing=Listing(
-        price=price[0], serial=serial[0] if serial else None, stattrak=stattrak, seller=seller,
-        price_approx=price[1], serial_digits=None if serial else digits))
+    listing = Listing(price=price[0], serial=serial[0] if serial else None, stattrak=stattrak, seller=seller,
+                      price_approx=price[1], serial_digits=None if serial else digits)
+    if seen is not None:
+        seen.append((seller, price[0], look, listing))
+    return Card(box, True, listing=listing)
 
 
 def has_banner(img: np.ndarray) -> bool:
@@ -214,8 +227,8 @@ def has_banner(img: np.ndarray) -> bool:
     return banner_rows.sum() >= 0.02 * img.shape[0]
 
 
-def read_cards(img: np.ndarray) -> list[Card]:
-    return [read_card(img, b) for b in find_cards(img)]
+def read_cards(img: np.ndarray, seen: list | None = None) -> list[Card]:
+    return [read_card(img, b, seen) for b in find_cards(img)]
 
 
 def read_record_count(img: np.ndarray) -> int | None:

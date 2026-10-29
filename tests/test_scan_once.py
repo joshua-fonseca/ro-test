@@ -1,12 +1,13 @@
 import csv
 import glob
+from pathlib import Path
 from datetime import datetime, timezone
 
 import pytest
 
 cv2 = pytest.importorskip("cv2")
 from models import Target  # noqa: E402
-from scan_once import scan_visible  # noqa: E402
+from scan_once import scan_list, scan_visible  # noqa: E402
 from storage import Store  # noqa: E402
 
 NOW = datetime(2026, 10, 28, 20, 0, tzinfo=timezone.utc)
@@ -18,7 +19,7 @@ def test_visible_cards_are_matched_cropped_and_logged(tmp_path, monkeypatch):
         pytest.skip("fixture screenshots missing")
     img = cv2.imread(files[0])  # complete cards: #ST.744 at 4,000 and #2248 at 8,000
     monkeypatch.chdir(tmp_path)  # crops and CSVs land in the temp folder
-    target = Target("Starveil AWP", "Sniper", "Limited", 5000, None, None, True)
+    target = Target("Starveil AWP", "Sniper", "Limited", 5000, None, True)
     store = Store(tmp_path / "output")
     store.begin_cycle("c1")
     r = scan_visible(img, target, store, tmp_path / "output", NOW)
@@ -30,3 +31,102 @@ def test_visible_cards_are_matched_cropped_and_logged(tmp_path, monkeypatch):
     with open(tmp_path / "output" / "listings.csv", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert [(x["serial"], x["price"], x["matched"]) for x in rows] == [("744", "4000", "true"), ("2248", "8000", "false")]
+
+
+def _frames(files):
+    """next_frame over saved frames: each scroll step moves one frame (the frames are ~150 px apart)."""
+    pos = 0
+
+    def next_frame(notches):
+        nonlocal pos
+        pos = min(max(pos + (notches > 0) - (notches < 0), 0), len(files) - 1)
+        return cv2.imread(files[pos])
+    return next_frame
+
+
+def _scan(tmp_path, monkeypatch, files, max_price, max_serial=0):  # serial 0 never shows: no match, keep scrolling
+    monkeypatch.chdir(tmp_path)
+    target = Target("Starveil AWP", "Sniper", "Limited", max_price, max_serial, True)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    r = scan_list(cv2.imread(files[0]), _frames(files), target, store, tmp_path / "output", NOW)
+    with open(tmp_path / "output" / "listings.csv", encoding="utf-8") as f:
+        return r, [int(x["price"]) for x in csv.DictReader(f)]
+
+
+FRAMES = sorted(str(p.resolve()) for p in Path("sniper_arena_scanner_handoff/scroll_starveil").glob("f*.png"))
+needs_frames = pytest.mark.skipif(len(FRAMES) != 29, reason="scroll frames missing")
+
+
+@needs_frames
+def test_full_scroll_reads_every_card_once(tmp_path, monkeypatch):
+    r, prices = _scan(tmp_path, monkeypatch, FRAMES, 100_000)
+    assert (r["status"], r["sorted"], r["records"]) == ("complete", True, 20)
+    # 8,111 is left out on purpose: its price reads disagree
+    assert prices == [3000, 4000, 4000] + [8000] * 5 + [8888, 9500, 9500, 9999, 10000] + [12000] * 3 + [17000, 20000, 22000]
+
+
+@needs_frames
+def test_stops_after_two_cards_over_max_price(tmp_path, monkeypatch):
+    r, prices = _scan(tmp_path, monkeypatch, FRAMES, 5000)
+    assert r["status"] == "stopped_at_price"
+    assert prices[:3] == [3000, 4000, 4000] and len(prices) < 8
+
+
+@needs_frames
+def test_stops_at_the_cheapest_match(tmp_path, monkeypatch):
+    r, prices = _scan(tmp_path, monkeypatch, FRAMES, 5000, max_serial=None)
+    assert (r["status"], r["matches"], prices) == ("stopped_at_first_match", 1, [3000])
+
+
+@needs_frames
+def test_unsorted_list_scrolls_to_the_end(tmp_path, monkeypatch):
+    # Frames walked backwards from the middle: prices fall after 9,500, so the early stop must be switched off
+    r, prices = _scan(tmp_path, monkeypatch, FRAMES[12::-1], 9600)
+    assert (r["status"], r["sorted"]) == ("complete", False)
+    assert sorted(prices)[:3] == [3000, 4000, 4000]
+
+
+@needs_frames
+def test_banner_means_look_again_before_scrolling(tmp_path, monkeypatch):
+    import scan_once
+    banners, calls = iter([True, True]), []
+    monkeypatch.setattr(scan_once.vision, "has_banner", lambda img: next(banners, False))
+    monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
+    frames = _frames(FRAMES[24:])  # static list end: one card, quick
+    monkeypatch.chdir(tmp_path)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    target = Target("Starveil AWP", "Sniper", "Limited", 100_000, 0, True)
+    r = scan_list(cv2.imread(FRAMES[24]), lambda n: calls.append(n) or frames(n), target, store, tmp_path, NOW)
+    assert r["status"] == "complete"
+    assert [n for n in calls if n >= 0][:3] == [0, 0, 1]  # two looks while the banner is up, then the scroll
+
+
+@needs_frames
+def test_live_frames_keeps_scrolling_when_no_card_is_complete(monkeypatch):
+    import sys
+    import types
+    import numpy as np
+    import scan_once
+    shots = iter([cv2.imread(FRAMES[0]), np.zeros((1166, 1920, 3), np.uint8), cv2.imread(FRAMES[1])])
+    scrolls = []
+    monkeypatch.setitem(sys.modules, "screen", types.SimpleNamespace(
+        client_rect=lambda hwnd: (100, 50, 1920, 1166), capture=lambda hwnd: next(shots)))
+    monkeypatch.setitem(sys.modules, "controller", types.SimpleNamespace(
+        scroll=lambda hwnd, x, y, n: scrolls.append((x, y, n)) or True))
+    monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
+    next_frame = scan_once._live_frames(1)
+    next_frame(0)
+    next_frame(3)  # the frame it gets back has no complete card (covered)
+    assert next_frame(3) is not None  # still scrolls, at the same point, instead of reporting focus lost
+    assert len(scrolls) == 2 and scrolls[0] == scrolls[1]
+    assert scrolls[0][0] < 100 + 1352 - 0.2 * (1352 - 570)  # left of the Teleport area
+
+
+@needs_frames
+def test_scrolls_past_cheap_high_serials_to_the_first_low_serial(tmp_path, monkeypatch):
+    r, prices = _scan(tmp_path, monkeypatch, FRAMES, 100_000, max_serial=600)
+    # 3,000-8,111 all have serials over 600; the first under it is ST.324 at 8,888 (ST.504 at 9,500 if 324 misreads)
+    assert (r["status"], r["matches"]) == ("stopped_at_first_match", 1)
+    assert prices[0] == 3000 and prices[-1] in (8888, 9500) and len(prices) >= 8

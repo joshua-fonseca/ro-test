@@ -9,7 +9,7 @@ from models import Listing, Target
 from storage import Store, add_discovered_skins, append_csv, format_match_line, listing_id, setup_run_log
 
 NOW = datetime(2026, 10, 28, 13, 5, tzinfo=timezone.utc)
-TARGET = Target("Nocturne Marlin [Rainbow]", "Sniper", "Secret", 9000, None, None, True)
+TARGET = Target("Nocturne Marlin [Rainbow]", "Sniper", "Secret", 9000, None, True)
 
 
 def rows(path):
@@ -141,7 +141,7 @@ def test_discovery_dry_run_writes_nothing(tmp_path):
 
 def test_discovery_never_touches_targets_csv(tmp_path):
     t = tmp_path / "targets.csv"
-    t.write_text("skin_name,category,rarity,max_price,max_serial,stattrak,enabled\nA,Sniper,Secret,1,,,true\n")
+    t.write_text("skin_name,category,rarity,max_price,max_serial,enabled\nA,Sniper,Secret,1,,true\n")
     before = t.read_bytes()
     add_discovered_skins(tmp_path / "discovered_skins.csv", ["A", "B"])
     assert t.read_bytes() == before

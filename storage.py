@@ -19,7 +19,7 @@ from parsing import format_serial
 
 log = logging.getLogger(__name__)
 
-TARGET_FIELDS = ["skin_name", "category", "rarity", "max_price", "max_serial", "stattrak", "enabled"]
+TARGET_FIELDS = ["skin_name", "category", "rarity", "max_price", "max_serial", "enabled"]
 ROW_FIELDS = ["scan_id", "observed_at", "skin_name", "category", "rarity", "stattrak", "serial", "price",
               "price_approx", "seller_display_name", "listing_id", "screenshot_path", "crop_status"]
 LISTING_FIELDS = ROW_FIELDS + ["matched"]
