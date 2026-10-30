@@ -153,7 +153,7 @@ def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
     w = World(monkeypatch, size=(1900, 1069))
     asked = []
     monkeypatch.setattr(navigate.screens, "find_first_tile", lambda img: asked.append(1) or (614, 274))
-    monkeypatch.setattr(navigate.screens, "find_check_button", lambda img: (1036, 725))
+    monkeypatch.setattr(navigate.screens, "find_check_button", lambda img: asked.append(2) or (1036, 725))
     steps = iter(["options", "results"] * 2)
 
     def click(hwnd, x, y):  # whatever the point, the game moves on one screen
@@ -165,15 +165,15 @@ def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
     first = w.clicks[:]
     w.state = "collection"
     assert navigate.open_results(1, "Nya Reaper")[0] is not None
-    assert asked == [1]  # the finder was only asked the first time
+    assert asked == [2]  # the check button's finder was only asked the first time; the first tile never needs one
     assert w.clicks[2:] == first and first[0] == (10 + 614, 20 + 274) and first[1] == (10 + 1036, 20 + 725)
 
 
-def test_a_fixed_point_that_the_finder_disagrees_with_is_not_used(monkeypatch):
+def test_the_first_tile_is_its_fixed_slot_even_when_the_finder_points_at_the_second_tile(monkeypatch):
     w = World(monkeypatch, size=(1900, 1069))
-    monkeypatch.setattr(navigate.screens, "find_first_tile", lambda img: (900, 600))  # far from the fixed point
+    monkeypatch.setattr(navigate.screens, "find_first_tile", lambda img: (787, 275))  # seen live: the pale rainbow tile 1 is missed
     navigate.open_results(1, "Nya Reaper")
-    assert w.clicks[0] == (10 + 900, 20 + 600)  # the finder's point, because the layout is off
+    assert w.clicks[0] == (10 + 614, 20 + 274)
 
 
 def test_a_late_paste_is_not_typed_over(monkeypatch):

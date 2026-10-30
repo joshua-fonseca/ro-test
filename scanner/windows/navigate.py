@@ -190,7 +190,10 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         return None, "not on the collection screen"
 
     def first_tile(img):
-        return layout.point(img, "first_tile", lambda: screens.find_first_tile(img))
+        # The slot is always the same on a 16:9 window; the finder (by red shape) can pick the second tile when the
+        # first has a rainbow frame and a pale picture (seen: Nocturne Daisho [Rainbow]). The name check below catches
+        # a wrong tile either way.
+        return layout.fixed(img, "first_tile") or screens.find_first_tile(img)
     tile = first_tile(img)
     for _ in range(2):  # the grid is still narrowing while the name was typed: look again
         if tile is not None:

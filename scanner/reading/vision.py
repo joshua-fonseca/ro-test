@@ -72,8 +72,9 @@ def find_cards(img: np.ndarray) -> list[Box]:
     min_h = 0.15 * (x1 - x0) / CARD_ASPECT  # drops the thin separator line under the title
     runs: list[list[int]] = []
     max_h = 1.05 * (x1 - x0) / CARD_ASPECT * 1.012  # joined pieces never make something taller than one card
-    for a, b in _runs(ok):  # gun art sticking out past a card's edge breaks a few rows: join runs <= 12 px apart
-        if runs and a - runs[-1][1] <= 12 and b - runs[-1][0] <= max_h:
+    join = 0.12 * (x1 - x0) / CARD_ASPECT  # cards are ~0.14 card heights apart; art overhang gaps measured up to 0.10
+    for a, b in _runs(ok):  # gun art sticking out past a card's edge breaks a few rows: join runs close together
+        if runs and a - runs[-1][1] <= join and b - runs[-1][0] <= max_h:
             runs[-1][1] = b
         else:
             runs.append([a, b])

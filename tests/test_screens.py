@@ -164,3 +164,11 @@ def test_a_smaller_window_on_another_monitor_is_still_the_collection_screen():
 def test_search_options_on_a_small_window_reads_the_label_from_the_tile_frame():
     img = load("sniper_arena_scanner_handoff/live_options_nya_1333.png")  # 1333x750: pink art, little red to size from
     assert screens.options_is_for(img, "Nya Reaper") and not screens.options_is_for(img, "Noire Nya Reaper")
+
+
+def test_a_card_whose_art_sticks_out_for_17_rows_is_still_one_card():
+    from scanner.reading import vision
+    img = cv2.imread("sniper_arena_scanner_handoff/live_daisho_rainbow_results.png")
+    boxes = vision.find_cards(img)
+    assert boxes[0][1:4:2] == (301, 470) and vision.is_complete(boxes[0])  # the Nocturne Daisho [Rainbow] card
+    assert boxes[1][1] > 480  # the next card stays a separate one
