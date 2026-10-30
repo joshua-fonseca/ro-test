@@ -437,3 +437,25 @@ def test_a_full_server_is_tried_again_on_the_same_listing_then_the_next_skin(mon
     tries.clear()
     assert not scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing)
     assert len(tries) == 4  # the first try and 3 retries, then next skin
+
+
+def test_the_card_is_found_again_though_its_rainbow_picture_and_seller_name_changed():
+    # seen live: the picture animates and "[Loading...]" became a name, so a whole-card match scored only 0.93
+    before = cv2.imread("sniper_arena_scanner_handoff/relocate_before.png")
+    after = cv2.imread("sniper_arena_scanner_handoff/relocate_after.png")
+    for card in vision.find_cards(before)[:3]:
+        assert scan_once._relocate(before, card, after) == tuple(int(v) for v in card)
+
+
+def test_a_neighbouring_card_is_never_taken_for_the_matched_one():
+    before = cv2.imread("sniper_arena_scanner_handoff/relocate_before.png")
+    first, second = vision.find_cards(before)[:2]
+    shifted = np.roll(before, int(first[1] - second[1]), axis=0)  # card 2 now sits where card 1 was
+    assert scan_once._relocate(before, first, shifted) is None  # same layout, other price: a card away is refused
+
+
+def test_a_flat_colour_frame_is_never_taken_for_the_matched_card():
+    before = cv2.imread("sniper_arena_scanner_handoff/relocate_before.png")
+    card = vision.find_cards(before)[0]
+    flat = np.full_like(before, 40)  # no texture at all: the match score is not a number
+    assert scan_once._relocate(before, card, flat) is None

@@ -187,7 +187,8 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
             if total["sorted"] and r["matches"]:
                 total["status"] = "stopped_at_first_match"
                 if snipe and "match_box" in r:
-                    total["match"] = _back_to_match(next_frame, before, img, notches, r["match_box"], r["match_listing"])
+                    total["match"] = _back_to_match(next_frame, before, img, notches, r["match_box"], r["match_listing"],
+                                                 Path(out) / "probe")
                 break
             if img is None:
                 total["status"] = "focus_lost"
@@ -220,16 +221,22 @@ def _relocate(src: np.ndarray, box, dst: np.ndarray):
     if b - t < 20 or src.shape != dst.shape:
         return None
     gray = lambda im: cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)  # noqa: E731
-    column = gray(dst)[:, l:r]
-    scores = cv2.matchTemplate(column, gray(src)[t:b, l:r], cv2.TM_CCOEFF_NORMED)[:, 0]
+    # The right 32% of the card: the price and the Teleport button (a long seller name reaches further left). Not the picture (rainbow frames and
+    # sparkles animate, so it never matches itself, seen live at score 0.93) and not the seller's name ("[Loading...]").
+    x0 = l + int(0.68 * (r - l))
+    scores = cv2.matchTemplate(gray(dst)[:, x0:r], gray(src)[t:b, x0:r], cv2.TM_CCOEFF_NORMED)[:, 0]
+    near = np.abs(np.arange(len(scores)) - t) <= 0.5 * (b - t)  # the list was scrolled back to the same place: a
+    scores = np.where(near, np.nan_to_num(scores, nan=-1), -1)   # neighbour card (same layout) is a full card away
     best = int(scores.argmax())
-    if scores[best] < 0.95:  # shortcut: 0.95 tested on saved frames only; tune if a live match is missed
+    log.info("matched card found again at score %.3f (needs 0.99)", scores[best])
+    # same card 1.000 live, a card with another price 0.95; `not >=` so a NaN is refused too. shortcut: tune if a live match is missed
+    if not scores[best] >= 0.99:
         return None
     dy = best - t
     return l, box[1] + dy, r, box[3] + dy
 
 
-def _back_to_match(next_frame, before: np.ndarray, now: np.ndarray | None, notches: int, box, listing):
+def _back_to_match(next_frame, before: np.ndarray, now: np.ndarray | None, notches: int, box, listing, probe=None):
     """--snipe: the list scrolled on while `before` was read; scroll back the same notches and find the matched card
     again by its picture. (frame, box, listing) for the Teleport click, or None: then nothing is clicked."""
     img = now if not notches else (None if now is None else next_frame(-notches))
@@ -238,6 +245,10 @@ def _back_to_match(next_frame, before: np.ndarray, now: np.ndarray | None, notch
     found = _relocate(before, box, img)
     if found is None:
         log.warning("the matched card was not found again after scrolling back: no Teleport")
+        if probe is not None:  # diagnostics: the frame it was read on and the one after scrolling back
+            probe.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(probe / "relocate_before.png"), before)
+            cv2.imwrite(str(probe / "relocate_after.png"), img)
         return None
     return img, found, listing
 
