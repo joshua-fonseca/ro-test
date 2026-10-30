@@ -7,7 +7,9 @@ It clicks and types the same way as `scan_once.py --navigate` and never clicks t
 and Sell on Market are clicked only with --snipe. Matches are printed and saved under output/. Stops by itself after 3 failed scans in a row.
 
 Flags:
-    --wait N          seconds to wait for you to click the Roblox title bar (default 30)
+    --wait N          seconds to wait for you to click the Roblox title bar (default 30). First it asks you to
+                      press y + Enter (so you are ready); with several Roblox windows, --width/--height resize
+                      them all, and the one you click is the one used
     --cycles N        stop after N passes over targets.csv (default 0 = until Ctrl+C)
     --clear-matches   first delete matches.csv and the saved match pictures, then scan as usual
     --snipe           on the first match: Teleport, buy it from the seller's stall, put your own stall up again, then
@@ -86,15 +88,26 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if a.clear_matches:
         print(f"Cleared matches.csv and {clear_matches(cfg.output_dir)} match picture(s).")
-    hwnd = screen.find_roblox()
-    if hwnd is None:
+    if screen.find_roblox() is None:
         print("Roblox window not found")
         return 2
-    if not screen.is_focused(hwnd):
-        print(f"Click the Roblox title bar within {a.wait} s (not inside the game)...")
-        if not _wait_for_focus(hwnd, screen, a.wait):
+    if sys.stdin.isatty():  # clicking Roblox takes the keyboard from this window, so the "ready?" comes first
+        try:
+            while input("Press y then Enter when you are ready to click the Roblox window to use: ").strip().lower() != "y":
+                pass
+        except (EOFError, KeyboardInterrupt):
+            print("Stopped before sending anything.")
+            return 130
+    print(f"Click the title bar of the Roblox window to use within {a.wait} s (not inside the game)...")
+    deadline = time.time() + a.wait
+    while True:  # with several Roblox windows, the one you click is the one used
+        hwnd = screen.find_roblox()
+        if hwnd is not None and screen.is_focused(hwnd):
+            break
+        if time.time() >= deadline:
             print("Roblox is not in front; nothing was sent.")
             return 2
+        time.sleep(0.5)
     out = Path(cfg.output_dir)
     setup_run_log(out)
     searched, failures = None, 0  # searched: the skin whose search text is still in the box

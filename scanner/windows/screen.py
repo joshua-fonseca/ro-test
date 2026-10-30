@@ -35,8 +35,21 @@ if sys.platform == "win32":
     # -4 = DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: real pixels on every monitor
     user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
 
-    def find_roblox() -> int | None:
+    def _is_roblox(hwnd: int) -> bool:
         # Class name read from the live game window; the title alone also matches e.g. an Explorer folder "Roblox"
+        cls, title = ctypes.create_unicode_buffer(64), ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, cls, 64)
+        user32.GetWindowTextW(hwnd, title, 64)
+        return cls.value == "WINDOWSCLIENT" and title.value == "Roblox"
+
+    def find_roblox(prefer: int | None = None) -> int | None:
+        """With several Roblox windows open: `prefer` while it is still a Roblox window, else the one in front, else
+        the first."""
+        if prefer and user32.IsWindow(prefer) and _is_roblox(prefer):
+            return prefer
+        front = user32.GetForegroundWindow()
+        if front and _is_roblox(front):
+            return front
         return user32.FindWindowW("WINDOWSCLIENT", "Roblox") or None
 
     def foreground_title() -> str:

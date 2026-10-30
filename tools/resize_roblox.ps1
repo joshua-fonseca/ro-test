@@ -1,5 +1,5 @@
 <#
-Resize the Roblox window so its game area (client area) is a given size in REAL pixels,
+Resize every open Roblox window so its game area (client area) is a given size in REAL pixels,
 and put it at the top-left of the monitor it is on.
 
 Give a width, a height, both, or neither:
@@ -39,7 +39,11 @@ public class U {
 # -4 = DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (Windows 10 1703+): true pixels on every monitor
 [U]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null
 
-$hwnd = (Get-Process RobloxPlayerBeta -ErrorAction Stop | Select-Object -First 1).MainWindowHandle
+$hwnds = @(Get-Process RobloxPlayerBeta -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -eq "Roblox" } | ForEach-Object { $_.MainWindowHandle })
+if ($hwnds.Count -eq 0) { throw "No Roblox window found" }
+$Width0 = $Width; $Height0 = $Height
+foreach ($hwnd in $hwnds) {   # every open Roblox window gets the same size; click the one you want afterwards
+$Width = $Width0; $Height = $Height0
 [U]::ShowWindow($hwnd, 9) | Out-Null   # restore if maximized
 
 $rw = New-Object RECT; $rc = New-Object RECT
@@ -74,3 +78,4 @@ $outerW = $rw.R - $rw.L; $outerH = $rw.B - $rw.T
 $workW = $mi.work.R - $mi.work.L; $workH = $mi.work.B - $mi.work.T
 "window ${outerW}x${outerH} on a ${workW}x${workH} usable screen area: " +
     $(if ($outerW -le $workW -and $outerH -le $workH) { "fits" } else { "TOO BIG, try a smaller -Width/-Height" })
+}

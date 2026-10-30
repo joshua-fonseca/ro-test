@@ -173,7 +173,7 @@ def _fake_game(monkeypatch, tmp_path, row="Starveil AWP,Sniper,Limited,5000,,tru
     (tmp_path / "targets.csv").write_text("skin_name,category,rarity,max_price,max_serial,enabled\n" + row + "\n")
     frame = cv2.imread(FRAMES[0])
     _fake(monkeypatch, "screen", types.SimpleNamespace(
-        find_roblox=lambda: 1, is_focused=lambda h: True, capture=lambda h: frame,
+        find_roblox=lambda prefer=None: 1, is_focused=lambda h: True, capture=lambda h: frame,
         client_rect=lambda h: (0, 0, 1920, 1166)))
     _fake(monkeypatch, "controller", types.SimpleNamespace(scroll=lambda *a: True))
     clicks = [] if clicks is None else clicks

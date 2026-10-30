@@ -119,7 +119,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     seen_black, img, start = False, None, time.time()
     end = start + cfg.teleport_max_seconds
     while True:
-        hwnd = screen.find_roblox() or hwnd  # the teleport may leave Roblox in a new window
+        hwnd = screen.find_roblox(hwnd) or hwnd  # the teleport may leave Roblox in a new window
         img = screen.capture(hwnd)  # None while Roblox is not in front: wait for it too, nothing is sent
         ok = None if img is None else screens.find_teleport_failed_ok(img)
         if ok is not None:

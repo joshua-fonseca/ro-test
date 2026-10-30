@@ -22,7 +22,7 @@ def _flow(monkeypatch, screens_in_order, skin, price):
     frames = iter([BLACK] + [n if not isinstance(n, (int, str)) else shot(n) for n in screens_in_order])  # loading first
     done = []
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: next(frames), raising=False)
-    monkeypatch.setattr(snipe.screen, "find_roblox", lambda: 1, raising=False)
+    monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
     monkeypatch.setattr(snipe.screen, "foreground_title", lambda: "x", raising=False)
     monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: done.append(("click", p)) or True)
     monkeypatch.setattr(snipe.controller, "hold_key", lambda hwnd, key, s: done.append(("hold", chr(key))) or True)
@@ -88,7 +88,7 @@ def test_the_flow_waits_for_the_loading_screen_to_come_and_go(monkeypatch):
     frames = iter([results, results, black, None, shot(6), shot(6)])  # None: Roblox not in front for a moment
     held = []
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: next(frames), raising=False)
-    monkeypatch.setattr(snipe.screen, "find_roblox", lambda: 1, raising=False)
+    monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
     monkeypatch.setattr(snipe.screen, "foreground_title", lambda: "x", raising=False)
     monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: True)
     monkeypatch.setattr(snipe.controller, "hold_key", lambda hwnd, key, s: held.append(key) or True)
@@ -143,7 +143,7 @@ def test_a_world_screen_before_the_loading_screen_does_not_count_as_arrived(monk
     # still the old server, then loading, then the new one
     looks = []
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: looks.append(1) or next(frames), raising=False)
-    monkeypatch.setattr(snipe.screen, "find_roblox", lambda: 1, raising=False)
+    monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
     monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: True)
     held = []
     monkeypatch.setattr(snipe.controller, "hold_key", lambda hwnd, key, s: held.append(len(looks)) or True)
@@ -178,7 +178,7 @@ def test_an_ignored_click_on_the_stall_x_is_sent_again(monkeypatch):
 def test_no_loading_screen_means_the_teleport_did_not_happen(monkeypatch):
     frames = iter([shot(6)] * 100)  # the old screen stays up: no black screen ever
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: next(frames), raising=False)
-    monkeypatch.setattr(snipe.screen, "find_roblox", lambda: 1, raising=False)
+    monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
     sent = []
     monkeypatch.setattr(snipe.navigate, "_click", lambda *a: sent.append(a) or True)
     monkeypatch.setattr(snipe.controller, "hold_key", lambda *a: sent.append(a) or True)

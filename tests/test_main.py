@@ -21,7 +21,7 @@ def _setup(monkeypatch, tmp_path, rows, results, focus=lambda: True):
         return results.pop(0)
     monkeypatch.setattr(scan_once, "_run_once", run_once)
     monkeypatch.setattr("scanner.windows.screen", types.SimpleNamespace(
-        find_roblox=lambda: 1, is_focused=lambda h: focus()), raising=False)
+        find_roblox=lambda prefer=None: 1, is_focused=lambda h: focus()), raising=False)
     monkeypatch.setattr("scanner.windows.navigate", types.SimpleNamespace(back_to_collection=lambda h: backs.append(1)),
                         raising=False)
     monkeypatch.setattr(main.time, "sleep", lambda s: pytest.fail("the loop must not pause"))
@@ -152,3 +152,20 @@ def test_width_and_height_run_the_resize_script_first(monkeypatch, tmp_path):
 def test_dry_run_needs_snipe():
     with pytest.raises(SystemExit):
         main.main(["--dry-run"])
+
+
+def test_it_asks_for_y_before_waiting_for_the_roblox_click(monkeypatch, tmp_path):
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)])
+    answers = iter(["n", "", "y"])
+    asked = []
+    monkeypatch.setattr(main.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", lambda prompt: asked.append(prompt) or next(answers))
+    assert main.main([]) == 130
+    assert len(asked) == 3 and calls  # n and an empty answer ask again; y goes on to the scan
+
+
+def test_ctrl_c_at_the_ready_prompt_stops_cleanly(monkeypatch, tmp_path):
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)])
+    monkeypatch.setattr(main.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", lambda prompt: (_ for _ in ()).throw(KeyboardInterrupt))
+    assert main.main([]) == 130 and calls == []  # nothing was scanned or sent
