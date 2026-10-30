@@ -150,6 +150,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     # the stall's X shows before its items and prices have loaded: keep looking a while before calling the item gone
     buy, img = _wait(hwnd, cfg.stall_load_seconds, lambda im: screens.find_stall_buy(im, skin, low, high))
     save("snipe_stall", img)  # diagnostics: the stall as it was read
+    dry = False
     if buy is not None:
         if not _click(hwnd, buy, img, "cash_button"):
             raise Stopped("click on the cash button not sent (Roblox lost focus, or the window changed size)")
@@ -168,6 +169,12 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
         if found[0] == "robux":
             _steps["short"] = True
             _press(hwnd, cfg, "robux_box_x", screens.find_robux_prompt_close)
+        elif cfg.dry_run:  # everything but the purchase: cancel the confirm box with its red X
+            cancel = screens.find_buy_cancel(img)
+            if cancel is None or not _click(hwnd, cancel, img, "buy_cancel"):
+                raise Stopped("dry run: could not click the cancel X of the confirm box", img)
+            time.sleep(cfg.snipe_click_pause)
+            dry = True
         else:
             if not _click(hwnd, found[1], img, "buy_check"):
                 raise Stopped("click not sent (Roblox lost focus, or the window changed size)", img)
@@ -184,5 +191,6 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _hold(hwnd, E, cfg.hold_e_seconds)
     _press(hwnd, cfg, "same_items_check")
     done = ("Not enough cash (closed Roblox's Buy Robux box); nothing bought" if _steps["short"] else
+            "Dry run: stopped at the confirm box (cancelled), nothing bought" if dry else
             "Bought" if buy is not None else "The item was gone from the stall; nothing bought")
     return done + ", then put your stall up again."

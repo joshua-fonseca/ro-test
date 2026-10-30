@@ -19,6 +19,7 @@ class Config:
     hold_e_seconds: float = 1  # hold E to open a stall
     stall_load_seconds: float = 5  # how long to keep looking for the item in a stall before calling it gone
     snipe_step_timeout: float = 8  # how long each button may take to show before the flow stops
+    dry_run: bool = False  # set by `main.py --snipe --dry-run`: every step but the buy check; the box is cancelled
     robux_box_wait_seconds: float = 2  # after the green check: how long to wait for a late Buy Robux box
     snipe_click_pause: float = 0.5  # after each click, for the next screen to show
 

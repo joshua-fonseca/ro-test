@@ -4,14 +4,14 @@ skin_name,category,rarity,max_price,max_serial,enabled
 Starveil Desert Eagle,Sniper,Limited,6000,100,false
 Starveil M82A1,Sniper,Limited,5000,100,false
 
-# KNIFE RECYCLE
+# LTD KNIFE RECYCLE
 Starveil Flip Knife,Knife,Limited,900,,false
 Starlight Flip Knife,Knife,Limited,900,,false
 Starry Flip Knife,Knife,Limited,900,,false
 Starfade Flip Knife,Knife,Limited,900,,false
 Starember Flip Knife,Knife,Limited,900,,false
 
-# GUN RECYCLE
+# LTD GUN RECYCLE
 Starry GM6 Lynx,Sniper,Limited,900,,false
 Starveil GM6 Lynx,Sniper,Limited,900,,false
 Starlight GM6 Lynx,Sniper,Limited,900,,false
@@ -19,4 +19,7 @@ Starember GM6 Lynx,Sniper,Limited,900,,false
 Starfade GM6 Lynx,Sniper,Limited,900,,false
 
 # TEST
-Nya Reaper,Knife,Secret,999999,100,true
+# Nya Reaper,Knife,Secret,999999,100,false
+
+# SCRT RECYCLE
+Nocturne Daisho [Rainbow],Knife,Secret,7000,,true

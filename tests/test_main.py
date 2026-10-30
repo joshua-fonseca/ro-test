@@ -147,3 +147,8 @@ def test_width_and_height_run_the_resize_script_first(monkeypatch, tmp_path):
     monkeypatch.setattr(main.subprocess, "run", lambda cmd, **k: ran.append(cmd) or types.SimpleNamespace(returncode=1))
     assert main.main(["--height", "900"]) == 2 and calls == []  # a failed resize scans nothing
     ran.clear(); main.main([]); assert ran == []  # no size asked for: the script is not run
+
+
+def test_dry_run_needs_snipe():
+    with pytest.raises(SystemExit):
+        main.main(["--dry-run"])

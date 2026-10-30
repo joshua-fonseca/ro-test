@@ -375,6 +375,17 @@ def snipe_button(img: np.ndarray, name: str) -> Point | None:
     return (x, y) if share.mean() > 0.25 else None
 
 
+def find_buy_cancel(img: np.ndarray) -> Point | None:
+    """Centre of the red X (cancel) of the "Buy this item for" box, or None. Found by its colour, left of the green
+    check, because the box is taller or shorter depending on the item picture (--snipe --dry-run clicks it)."""
+    h, w = img.shape[:2]
+    x0, y0 = int(0.40 * w), int(0.58 * h)
+    r = img[y0:int(0.74 * h), x0:int(0.50 * w)].astype(int)
+    red = (r[..., 2] > 120) & (r[..., 2] - r[..., 1] > 70) & (r[..., 2] - r[..., 0] > 70)
+    ys, xs = np.nonzero(red)
+    return (x0 + (int(xs.min()) + int(xs.max())) // 2, y0 + (int(ys.min()) + int(ys.max())) // 2) if red.sum() > 0.001 * w * h else None  # box middle: the white X leaves the colour lopsided
+
+
 def find_teleport_failed_ok(img: np.ndarray) -> Point | None:
     """Centre of the white Ok button of Roblox's "Teleport Failed" box (server full), or None. Roblox draws that box
     in its own size, not the game's, so it is found by shape: a wide pure-white bar near the middle with the box's flat

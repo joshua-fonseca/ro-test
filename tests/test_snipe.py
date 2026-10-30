@@ -197,3 +197,21 @@ def test_a_buy_robux_box_that_slides_in_after_the_green_check_is_closed_before_t
     x = screens.find_robux_prompt_close(shot("buy_robux"))
     exit_point = screens.snipe_button(shot(8), "stall_exit")
     assert clicks[2:4] == [x, exit_point]  # the box's X (nothing else in it) before the stall's red X
+
+
+def test_the_cancel_x_of_the_confirm_box_is_found_at_both_sizes():
+    big = cv2.imread("sniper_arena_scanner_handoff/snipe_confirm_1900.png")
+    x, y = screens.find_buy_cancel(big)
+    assert abs(x - 861) < 15 and abs(y - 692) < 15
+    assert screens.find_buy_cancel(shot(8)) is None  # the stall itself has no such box
+    assert screens.find_buy_cancel(shot(9)) is not None
+
+
+def test_dry_run_clicks_everything_but_the_green_check(monkeypatch):
+    done, _ = _flow(monkeypatch, [6, 8, 8, 9, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Northern Forest Kukri", 15)
+    dry = dataclasses.replace(FAST, dry_run=True)
+    result = snipe.after_teleport(1, dry, "Northern Forest Kukri", 15, 15)
+    clicks = [d[1] for d in done if d[0] == "click"]
+    green = screens.snipe_button(shot(9), "buy_check")
+    assert result.startswith("Dry run") and green not in clicks
+    assert clicks[1] == screens.find_buy_cancel(shot(9)) and len(clicks) == 10  # the same steps as a real buy

@@ -12,6 +12,8 @@ Flags:
     --clear-matches   first delete matches.csv and the saved match pictures, then scan as usual
     --snipe           on the first match: Teleport, buy it from the seller's stall, put your own stall up again, then
                       stop the loop (scanner/windows/snipe.py; waits and hold times are in config.json)
+    --dry-run         with --snipe: do every step but the buy: the confirm box is cancelled (its red X), the rest
+                      (stall X, Inventory ... same-items check) still runs, so it is a full rehearsal
     --width N         first resize the Roblox window so its game area is N px wide (height follows at 16:9);
     --height N        or N px high (width follows). Both = that exact size. Runs tools/resize_roblox.ps1.
 
@@ -21,6 +23,7 @@ Run it on Windows (it captures the screen and sends input), with Roblox open on 
 Stop with Ctrl+C in the window it runs in. (From WSL, Ctrl+C may leave the Windows process running: use the first form.)
 """
 import argparse
+import dataclasses
 import logging
 import os
 import subprocess
@@ -72,8 +75,12 @@ def main(argv: list[str] | None = None) -> int:
     args.add_argument("--height", type=int, default=0, help="first resize the Roblox window to this client height (width follows at 16:9)")
     args.add_argument("--snipe", action="store_true",
                       help="on the first match: Teleport, buy it from the stall, put your stall up again, then stop")
+    args.add_argument("--dry-run", action="store_true",
+                      help="with --snipe: every step except the green check that buys (the confirm box is cancelled)")
     a = args.parse_args(argv)
-    cfg = load_config()
+    if a.dry_run and not a.snipe:
+        args.error("--dry-run only works together with --snipe")
+    cfg = dataclasses.replace(load_config(), dry_run=a.dry_run)
     if (a.width or a.height) and not resize_roblox(a.width, a.height):
         print("Could not resize the Roblox window (is it open and not fullscreen?)")
         return 2
