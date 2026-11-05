@@ -1,0 +1,1 @@
+backend=windows ocr_calls=2012 ocr_seconds=91.2 mean_ms=45

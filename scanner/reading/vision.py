@@ -15,6 +15,8 @@ import pytesseract
 from scanner.logic.models import Listing
 from scanner.logic.parsing import parse_price, parse_serial, price_is_approximate
 from scanner.reading import ocr_backend  # noqa: F401  (installs the OCR hook; see benchmarks/)
+if os.name == "nt":
+    from scanner.reading import ocr_windows  # noqa: F401  (swaps in the Windows OCR)
 
 # The Windows installer does not put tesseract on PATH; WSL/Linux finds it on PATH.
 _WIN_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
