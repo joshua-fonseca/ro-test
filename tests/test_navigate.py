@@ -281,3 +281,11 @@ def test_the_search_box_is_not_clicked_on_a_screen_that_is_not_the_collection(mo
     monkeypatch.setattr(navigate.screens, "classify", lambda img: next(looks))
     ok, why = navigate.search_for(1, "Nya Reaper")
     assert not ok and why.startswith("not on the collection screen") and w.pasted == [] and w.clicks == []
+
+
+def test_the_no_listings_box_is_closed_at_its_own_x_not_the_lists_fixed_point():
+    import cv2
+    img = cv2.imread("sniper_arena_scanner_handoff/live_no_listings.png")
+    x, y = navigate._close_point(img)
+    assert (x, y) == navigate.screens.find_close_button(img) and y < 870  # the fixed point (875) is that button's very edge
+    assert navigate.layout.fixed(img, "close_results")[1] >= 870

@@ -22,13 +22,15 @@ log = logging.getLogger(__name__)
 
 
 def wait_for(hwnd: int, state: str, seconds: float):
-    """Capture until the screen is `state`; the capture, or None on timeout or if Roblox lost focus."""
+    """Capture until the screen is `state`; the capture, or None on timeout or if Roblox lost focus. "results" also
+    accepts the "No listings found" box: it closes with the same X."""
     deadline = time.time() + seconds
     while time.time() < deadline:
         img = screen.capture(hwnd)
         if img is None:
             return None
-        if screens.classify(img) == state:
+        got = screens.classify(img)
+        if got == state or (state == "results" and got == "empty"):
             return img
         time.sleep(0.1)
     return None
@@ -267,17 +269,25 @@ def back_to_collection(hwnd: int) -> bool:
         return True
     if state == "options":
         point = layout.point(img, "options_cancel", lambda: screens.find_options_cancel(img))
-    elif state == "results":
-        point = layout.point(img, "close_results", lambda: screens.find_close_button(img))
+    elif state in ("results", "empty"):
+        point = _close_point(img)
     else:
         return False
     return point is not None and _click(hwnd, point, img) and wait_for(hwnd, "collection", 4) is not None
 
 
+def _close_point(img):
+    """The red X under the results list. For the "No listings found" box its own finder is used: its X sits a few
+    pixels higher than the list's, and the list's fixed point is the very edge of that button."""
+    if screens.classify(img) == "empty":
+        return screens.find_close_button(img)
+    return layout.point(img, "close_results", lambda: screens.find_close_button(img))
+
+
 def close_results(hwnd: int) -> bool:
     """Click the red X under the results list and wait for the collection screen. False if it did not work."""
     img = wait_for(hwnd, "results", 8)  # a banner can hide the list for a few seconds
-    point = None if img is None else layout.point(img, "close_results", lambda: screens.find_close_button(img))
+    point = None if img is None else _close_point(img)
     return point is not None and _click(hwnd, point, img) and wait_for(hwnd, "collection", 4) is not None
 
 

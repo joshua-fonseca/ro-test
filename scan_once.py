@@ -390,6 +390,10 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             return 1, False
         navigated = True
     try:
+        if navigated and screens.classify(opened) == "empty":  # no seller has it: nothing to read (not a failure)
+            print("No listings found; nothing to scan")
+            store.log_scan(now, target, "no_listings")
+            return 0, navigated
         frames_dir = Path(cfg.output_dir) / "scan_frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
         for old in frames_dir.glob("*.png"):  # only the latest run's frames are kept

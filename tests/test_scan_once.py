@@ -459,3 +459,15 @@ def test_a_flat_colour_frame_is_never_taken_for_the_matched_card():
     card = vision.find_cards(before)[0]
     flat = np.full_like(before, 40)  # no texture at all: the match score is not a number
     assert scan_once._relocate(before, card, flat) is None
+
+
+@needs_frames
+def test_a_skin_nobody_sells_is_skipped_at_once_and_is_not_a_failure(monkeypatch, tmp_path, capsys):
+    import scan_once
+    empty = cv2.imread("sniper_arena_scanner_handoff/live_no_listings.png")  # before _fake_game changes the folder
+    clicks = _fake_game(monkeypatch, tmp_path)
+    import scanner.windows as w
+    monkeypatch.setattr(w.navigate, "open_results", lambda *a, **k: (empty, ""))
+    assert scan_once.main(["Starveil AWP", "--navigate"]) == 0
+    assert "No listings found" in capsys.readouterr().out
+    assert _log_statuses(tmp_path) == ["no_listings"] and clicks == ["close"]  # the box is closed, nothing scrolled

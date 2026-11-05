@@ -181,3 +181,12 @@ def test_the_search_bar_is_not_confused_with_a_grey_strip_at_the_window_bottom()
     x, y, w, h = screens._search_bar(img)
     assert 900 < y < 960 and w > 600  # the real bar, not the strip at y 1011
     assert screens.search_has_text(img)
+
+
+def test_the_no_listings_box_is_its_own_screen_with_a_close_button():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_no_listings.png")  # 1890x1068, seen live for a skin nobody sells
+    assert screens.classify(img) == "empty"
+    x, y = screens.find_close_button(img)
+    assert 878 < x < 1011 and 808 < y < 875  # inside the red X button at the bottom centre of the box
+    assert screens.classify(load("sniper_arena_scanner_handoff/live_empty_price_read.png")) == "results"  # a real list is not it
+    assert screens.classify(load("sniper_arena_scanner_handoff/live_search_empty_no_caret.png")) == "collection"

@@ -27,6 +27,21 @@ def modal_box(img: np.ndarray) -> tuple[int, int, int, int] | None:
     return int(x), int(y), int(w), int(h)
 
 
+def _empty_box(img: np.ndarray) -> tuple[int, int, int, int] | None:
+    """The "No listings found" box as (left, top, width, height): a big plain panel of its own grey (52, 55, 61), a
+    little lighter than the results list's background, so modal_box does not see it."""
+    h, w = img.shape[:2]
+    mask = cv2.inRange(img, (58, 52, 49), (64, 58, 55))  # BGR, 52,55,61 (RGB) +-3: no int conversion, a few ms
+    if cv2.countNonZero(mask) < 0.2 * w * h:  # the box is about a third of the frame: most frames stop here
+        return None
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    n, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    if n < 2:
+        return None
+    x, y, bw, bh, _ = stats[1 + np.argmax(stats[1:, 4])]
+    return (int(x), int(y), int(bw), int(bh)) if bw > 0.3 * w and bh > 0.5 * h else None
+
+
 def _components(mask: np.ndarray, min_area: int):
     n, _, stats, cen = cv2.connectedComponentsWithStats(mask.astype(np.uint8))
     return [(stats[i], cen[i]) for i in range(1, n) if stats[i, 4] >= min_area]
@@ -80,7 +95,8 @@ def search_has_text(img: np.ndarray) -> bool:
 
 
 def classify(img: np.ndarray) -> str:
-    """'options' (Search Options box), 'results' (listing list), 'collection' (skin grid) or 'unknown'.
+    """'options' (Search Options box), 'results' (listing list), 'empty' ("No listings found"), 'collection' (skin grid)
+    or 'unknown'.
 
     Colour and size only, no OCR (the old text check took 0.3 s a call): the collection screen is the only one with
     the search bar showing; the Search Options box is a small modal (about 40% of the height) and the results
@@ -92,7 +108,7 @@ def classify(img: np.ndarray) -> str:
         return "collection"
     box = modal_box(img)
     if box is None or box[2] < 0.3 * w:  # no modal, or only a speck of the background colour (the game world)
-        return "unknown"
+        return "empty" if _empty_box(img) else "unknown"
     return "options" if box[3] < 0.5 * img.shape[0] else "results"
 
 
@@ -128,10 +144,11 @@ def find_options_cancel(img: np.ndarray) -> Point | None:
 
 
 def find_close_button(img: np.ndarray) -> Point | None:
-    """Red X at the bottom of the results list. None on any other screen."""
-    if classify(img) != "results":
+    """Red X at the bottom of the results list (or of the "No listings found" box). None on any other screen."""
+    state = classify(img)
+    if state not in ("results", "empty"):
         return None
-    x, y, w, h = modal_box(img)
+    x, y, w, h = modal_box(img) if state == "results" else _empty_box(img)
     box = img[y:y + h, x:x + w].astype(int)
     red = (box[..., 2] > 150) & (box[..., 1] < 60) & (box[..., 0] < 60)
     found = [(s, c) for s, c in _components(red, int(0.0007 * w * h))
