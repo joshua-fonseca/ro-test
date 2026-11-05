@@ -7,6 +7,7 @@ All, Inspect, Sell on Market, the green check in "Claim this stall?", hold E, an
 same items as last time?". Every click waits for its button's colour at its fixed point (screens.SNIPE; Inspect, which
 moves, is found by colour alone); anything that does not show in time stops the whole flow with nothing more sent.
 """
+import logging
 import time
 
 from scanner.reading import screens
@@ -14,6 +15,9 @@ from scanner.windows import controller, navigate, screen
 
 W, S, E = 0x57, 0x53, 0x45  # virtual keys
 HOVER = 0.1  # Roblox can ignore a press that lands the instant the cursor reaches a button (seen live on the stall X)
+
+
+log = logging.getLogger(__name__)
 
 
 class Stopped(Exception):
@@ -181,6 +185,8 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
             why = "loading" if img is not None else f"Roblox not in front ({screen.foreground_title()!r} was)"
             raise Stopped(f"after {cfg.teleport_max_seconds} s the new server was still {why}", img)
         time.sleep(0.5)
+    log.info("timing: the new server showed %.1f s after the Teleport click", time.time() - start)
+    t_world = time.time()
     time.sleep(cfg.teleport_wait_seconds)  # the new world finishes drawing before the walk
     _shot("arrived", img)
     _hold(hwnd, W, cfg.walk_seconds)
@@ -189,8 +195,11 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: screens.snipe_button(im, "stall_exit"))
     if exit_point is None:
         raise Stopped("the seller's stall did not open", img)
+    log.info("timing: stall open %.1f s after the world showed (wait, walk and hold E included)", time.time() - t_world)
     # the stall's X shows before its items and prices have loaded: keep looking a while before calling the item gone
     buy, img, seen = _look_in_stall(hwnd, skin, low, high, cfg.stall_load_seconds)
+    log.info("timing: item %s %.1f s after the stall opened", "found" if buy is not None else "not in view",
+             time.time() - t_world)
     for _ in range(cfg.stall_max_scrolls):  # the item may be further down: a stall lists dearest first
         if buy is not None or (seen and max(seen) < low):
             break  # found, or everything in view is cheaper than the item (shortcut: assumes the stall is sorted high to low, as seen on 3 stalls)

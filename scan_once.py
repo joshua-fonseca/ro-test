@@ -164,6 +164,7 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
             if view is None:
                 total["status"] = "list_lost"
                 break
+            t_frame = time.perf_counter()
             job = reader.submit(scan_visible, img, target, store, out, now, seen, first_only=total["sorted"])
             # a banner covers cards: look again before scrolling past them
             if vision.has_banner(img) and retries < 3:
@@ -174,8 +175,11 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
                 retries, notches = 0, (1 if measuring else step)
             before = img
             img = next_frame(notches)  # one scroll past a stop is harmless: the next frame is simply not read
+            t_scrolled = time.perf_counter()
             r = job.result()
             total["frames"] += 1
+            log.info("timing: frame %d: scroll and settle %.2f s, then %.2f s more for the read (read took %.2f s in all)",
+                     total["frames"], t_scrolled - t_frame, time.perf_counter() - t_scrolled, time.perf_counter() - t_frame)
             for k in ("read", "matches", "unreadable", "lines"):
                 total[k] += r[k]
             if r["unsorted"] and total["sorted"]:  # one lower price below a higher one and the early stops are off
@@ -239,10 +243,13 @@ def _relocate(src: np.ndarray, box, dst: np.ndarray):
 def _back_to_match(next_frame, before: np.ndarray, now: np.ndarray | None, notches: int, box, listing, probe=None):
     """--snipe: the list scrolled on while `before` was read; scroll back the same notches and find the matched card
     again by its picture. (frame, box, listing) for the Teleport click, or None: then nothing is clicked."""
+    t = time.perf_counter()
     img = now if not notches else (None if now is None else next_frame(-notches))
     if img is None:
         return None
+    t_back = time.perf_counter() - t
     found = _relocate(before, box, img)
+    log.info("timing: scroll back %.2f s, find the card again %.2f s", t_back, time.perf_counter() - t - t_back)
     if found is None:
         log.warning("the matched card was not found again after scrolling back: no Teleport")
         if probe is not None:  # diagnostics: the frame it was read on and the one after scrolling back
@@ -331,7 +338,9 @@ def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) 
     for attempt in range(1 + cfg.teleport_retries):
         if attempt:
             time.sleep(1)  # after Ok: let the list settle before checking it still shows the listing
+        t = time.perf_counter()
         teleported, why = _teleport(hwnd, shown, card)
+        log.info("timing: checking and clicking Teleport took %.2f s", time.perf_counter() - t)
         print("Teleport clicked." if teleported else f"Teleport not clicked: {why}. Going on with the next skin.")
         if not teleported:
             return False
@@ -366,6 +375,7 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
     snipe.after_teleport (buy it, put the stall up again) and return TELEPORTED. (exit code, skin is still searched)."""
     store = Store(out)
     now = datetime.now().astimezone()
+    t_start = time.perf_counter()
     store.begin_cycle(now.strftime("%Y%m%dT%H%M%S"))
     navigated = stopped = teleported = False
     if navigate_mode:
@@ -389,6 +399,8 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             store.log_scan(now, target, "navigation_failed", detail=why)
             return 1, False
         navigated = True
+        log.info("timing: search and open the results took %.2f s", time.perf_counter() - t_start)
+    t_open = time.perf_counter()
     try:
         if navigated and screens.classify(opened) == "empty":  # no seller has it: nothing to read (not a failure)
             print("No listings found; nothing to scan")
@@ -412,12 +424,14 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             print(f"Roblox is {img.shape[1]} px wide; at least {cfg.min_window_width} is needed")
             return 2, navigated
 
+        log.info("timing: first card on screen %.2f s after the results opened", time.perf_counter() - t_open)
         Image.fromarray(img[:, :, ::-1]).save(out / "last_capture.png")  # diagnostics: what the scan saw
         if not any(vision.is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
             print("No results list on screen; nothing recorded")
             store.log_scan(now, target, "no_results_visible")
             return 1, navigated
         print("Scrolling the list: hands off the mouse; click another window to stop.")
+        t_scan = time.perf_counter()
         r = scan_list(img, next_frame, target, store, out, now, at_top=navigated, calibrate=True,
                       snipe=snipe and navigated)
         if r["status"] == "complete":
@@ -430,6 +444,8 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         print(f"{r['status']}: {r['read']} listing(s) read, {r['matches']} match(es); records found: {r['records']}"
               + (f"; {r['unreadable']} unreadable card read(s)" if r["unreadable"] else "")
               + ("" if r["sorted"] else "; list was not sorted by price, scrolled to the end"))
+        log.info("timing: reading the list took %.2f s (%d frames); results opened %.2f s ago",
+                 time.perf_counter() - t_scan, r["frames"], time.perf_counter() - t_open)
         if r.get("match"):  # only set when scan_list ran with snipe
             teleported = _snipe(hwnd, cfg, out, target, *r["match"])
             if teleported:
