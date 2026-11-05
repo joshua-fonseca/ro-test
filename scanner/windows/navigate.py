@@ -11,6 +11,7 @@ import sys
 import time
 
 import cv2
+import numpy as np
 
 from scanner.windows import controller
 from scanner.reading import layout
@@ -208,12 +209,32 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
     return True, ""
 
 
+_slot: dict[str, int] = {}  # skin -> the tile (0 = first) its Search Options name matched last time
+
+
+def _slot_point(first, k: int, img):
+    """Centre of tile number k (row by row, 6 to a row) from the first tile's centre; the tiles are 0.0916 of the width
+    and 0.1616 of the height apart (measured on 1900x1069 frames)."""
+    h, w = img.shape[:2]
+    return first[0] + round(k % 6 * 0.0916 * w), first[1] + round(k // 6 * 0.1616 * h)
+
+
+def _has_tile(img, point) -> bool:
+    """True if a red skin tile (not the bare grey panel, which has almost no red) is around `point`; a pale picture
+    under a rainbow frame still leaves the red fill."""
+    h, w = img.shape[:2]
+    r = int(0.04 * w)
+    a = img[max(0, point[1] - r):point[1] + r, max(0, point[0] - r):point[0] + r].astype(int)
+    return a.size > 0 and ((a[..., 2] - np.maximum(a[..., 0], a[..., 1])) > 20).mean() > 0.12
+
+
 def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     """(results screenshot, '') or (None, why it stopped). save(name, img) keeps diagnostics.
 
-    After a search the skin is the first tile of the grid, so the tile and the green check are clicked at once from
-    known positions. The Search Options name is checked on the screenshot while the results load: if it was another
-    skin's results that opened, they are closed again and nothing is scanned.
+    After a search the skin is usually the first tile of the grid, so the tile and the green check are clicked at once
+    from known positions. The Search Options name is checked on the screenshot while the results load: if it was
+    another skin's results that opened, they are closed again and the next tile is tried (a skin that was found on
+    the second tile is opened from there next time).
     """
     img = wait_for(hwnd, "collection", 8)
     if img is None:
@@ -235,23 +256,46 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         if img is not None:
             save("no_tile", img)
         return None, f"no single tile labelled {skin!r} in the grid"
-    if not _click(hwnd, tile, img):
-        return None, "click not sent (Roblox lost focus, or the window changed size)"
-    img = wait_for(hwnd, "options", 4)
-    if img is None:
-        return None, "Search Options did not open after clicking the tile"
-    save("options", img)
-    check = layout.point(img, "check", lambda: screens.find_check_button(img))
-    if check is None:
-        return None, "no green check found in Search Options"
-    if not _click(hwnd, check, img):
-        return None, "click not sent (Roblox lost focus, or the window changed size)"
-    right_skin = screens.options_is_for(img, skin)  # read while the results load
-    results = wait_for(hwnd, "results", 8)
-    if not right_skin:  # the tile was another skin, or its name did not read: close what opened
-        save("options_" + re.sub(r"[^a-z0-9]+", "-", skin.lower()).strip("-"), img)  # one file per skin: see which
-        back = back_to_collection(hwnd)
-        return None, f"Search Options was not for {skin!r}" + ("" if back else " (and could not get back to the grid)")
+    first = tile
+    known = _slot.get(skin, 0)  # a search can show several variants ("Nya Machete [Rainbow]", "Nya Machete"): the tile
+    if known and not _has_tile(img, _slot_point(first, known, img)):  # this skin was last found on goes first, if still there
+        _slot.pop(skin)
+        known = 0
+    right_skin = False
+    for n, k in enumerate([known] + [k for k in range(6) if k != known]):
+        tile = _slot_point(first, k, img)
+        if n and not _has_tile(img, tile):
+            break  # no tile in that slot: no more variants
+        if not _click(hwnd, tile, img):
+            return None, "click not sent (Roblox lost focus, or the window changed size)"
+        grid = img  # the tiles as they were before the click, kept for diagnostics
+        img = wait_for(hwnd, "options", 4)
+        if img is None:
+            return None, "Search Options did not open after clicking the tile"
+        save("options", img)
+        check = layout.point(img, "check", lambda: screens.find_check_button(img))
+        if check is None:
+            return None, "no green check found in Search Options"
+        if not _click(hwnd, check, img):
+            return None, "click not sent (Roblox lost focus, or the window changed size)"
+        right_skin = screens.options_is_for(img, skin)  # read while the results load
+        results = wait_for(hwnd, "results", 8)
+        if right_skin:
+            _slot[skin] = k
+            break
+        # the tile was another skin, or its name did not read: close what opened and try the next tile
+        name = re.sub(r"[^a-z0-9]+", "-", skin.lower()).strip("-")
+        save("grid_" + name, grid)  # the tiles it chose from
+        save("options_" + name, img)  # one file per skin: see which
+        if not back_to_collection(hwnd):
+            return None, f"Search Options was not for {skin!r} (and could not get back to the grid)"
+        img = wait_for(hwnd, "collection", 4)  # the grid redraws after the close: let it settle before looking for the next tile
+        img = None if img is None else _settled(hwnd, img)
+        if img is None:
+            return None, "Roblox lost focus"
+    if not right_skin:
+        _slot.pop(skin, None)
+        return None, f"Search Options was not for {skin!r}"
     if results is None:
         raw = screen.capture(hwnd)  # diagnostics: what was on screen instead
         if raw is not None:

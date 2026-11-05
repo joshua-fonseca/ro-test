@@ -60,7 +60,7 @@ class World:
 
     def _click(self, hwnd, x, y):
         self.clicks.append((x, y))
-        self.state = {(110, 220): "options", (310, 420): "results", (510, 620): "collection",
+        self.state = {(110, 220): "options", (286, 220): "options", (310, 420): "results", (510, 620): "collection",
                                            (410, 520): "collection"}.get((x, y), self.state)
         return True
 
@@ -289,3 +289,32 @@ def test_the_no_listings_box_is_closed_at_its_own_x_not_the_lists_fixed_point():
     x, y = navigate._close_point(img)
     assert (x, y) == navigate.screens.find_close_button(img) and y < 870  # the fixed point (875) is that button's very edge
     assert navigate.layout.fixed(img, "close_results")[1] >= 870
+
+
+def test_a_skin_that_is_the_second_variant_is_opened_from_there_and_remembered(monkeypatch):
+    monkeypatch.setattr(navigate, "_slot", {})
+    w = World(monkeypatch, label_ok=False)
+    monkeypatch.setattr(navigate, "_has_tile", lambda img, point: True)
+    monkeypatch.setattr(navigate.screens, "options_is_for", lambda img, name: w.clicks[-2] == (286, 220))  # tile 2 only
+    img, why = navigate.open_results(1, "Nya Machete")  # seen live: "Nya Machete [Rainbow]" is tile 1, "Nya Machete" tile 2
+    assert img is not None and why == "" and navigate._slot == {"Nya Machete": 1}
+    assert w.clicks == [(110, 220), (310, 420), (510, 620), (286, 220), (310, 420)]  # wrong tile, close, right tile
+    w.clicks.clear()
+    w.state = "collection"
+    assert navigate.open_results(1, "Nya Machete")[0] is not None and w.clicks == [(286, 220), (310, 420)]  # straight there
+
+
+def test_no_tile_in_the_next_slot_ends_the_search_without_more_clicks(monkeypatch):
+    monkeypatch.setattr(navigate, "_slot", {})
+    w = World(monkeypatch, label_ok=False)
+    monkeypatch.setattr(navigate, "_has_tile", lambda img, point: False)  # one tile only, and it is the wrong one
+    img, why = navigate.open_results(1, "Nya Reaper")
+    assert img is None and "was not for" in why and len(w.clicks) == 3  # tile, check, close; no second tile tried
+
+
+def test_a_remembered_tile_that_is_gone_is_forgotten_and_the_first_tile_is_tried(monkeypatch):
+    monkeypatch.setattr(navigate, "_slot", {"Nya Machete": 1})  # the second variant was here last time
+    w = World(monkeypatch)
+    monkeypatch.setattr(navigate, "_has_tile", lambda img, point: point[0] < 150)  # now only the first tile is listed
+    img, why = navigate.open_results(1, "Nya Machete")
+    assert img is not None and w.clicks[0] == (110, 220) and navigate._slot == {"Nya Machete": 0}

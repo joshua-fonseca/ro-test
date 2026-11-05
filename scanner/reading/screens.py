@@ -123,8 +123,8 @@ def no_listings(img: np.ndarray) -> bool:
         return False
     x, y, w, h = modal_box(img)
     band = img[y + int(0.03 * h):y + int(0.14 * h), x + int(0.3 * w):x + int(0.7 * w)]
-    return band.size > 0 and any("nolistings" in _letters(pytesseract.image_to_string(v, config="--psm 7"))
-                                 for v in vision._variants(band)[:2])
+    # "isting", not "nolistings": a misread l or o still counts; a list's title ("N records found") never has it
+    return band.size > 0 and any("isting" in _letters(t) for t in vision._ocr_all(vision._variants(band), None))
 
 
 def find_search_box(img: np.ndarray) -> Point | None:

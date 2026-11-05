@@ -462,9 +462,10 @@ def test_a_flat_colour_frame_is_never_taken_for_the_matched_card():
 
 
 @needs_frames
-def test_a_skin_nobody_sells_is_skipped_at_once_and_is_not_a_failure(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("box", ["live_no_listings_dark_1900", "live_no_listings"])  # the list's own grey, and a lighter one
+def test_a_skin_nobody_sells_is_skipped_at_once_and_is_not_a_failure(monkeypatch, tmp_path, capsys, box):
     import scan_once
-    empty = cv2.imread("sniper_arena_scanner_handoff/live_no_listings_dark_1900.png")  # before _fake_game changes the folder
+    empty = cv2.imread(f"sniper_arena_scanner_handoff/{box}.png")  # before _fake_game changes the folder
     clicks = _fake_game(monkeypatch, tmp_path)
     import scanner.windows as w
     import types
