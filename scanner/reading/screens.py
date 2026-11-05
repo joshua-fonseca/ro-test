@@ -361,7 +361,7 @@ def find_stall_buy(img: np.ndarray, name: str, low: int, high: int, seen: list |
 SNIPE = {
     "buy_check": ((0.557, 0.674), "green"), "stall_exit": ((0.079, 0.808), "red"),
     "inventory": ((0.29, 0.085), "orange_line"), "inventory_all": ((0.404, 0.234), "blue"),
-    "inspect": ((0.266, 0.615), "blue"), "sell_on_market": ((0.882, 0.781), "blue"),
+    "sell_on_market": ((0.882, 0.781), "blue"),
     "claim_check": ((0.558, 0.534), "green"), "same_items_check": ((0.559, 0.579), "green"),
 }
 
@@ -394,8 +394,8 @@ def find_inspect(img: np.ndarray) -> Point | None:
     buttons = [(s, c) for s, c in _components(blue, int(0.006 * w * h)) if s[2] > 2 * s[3]]
     if not buttons:
         return None
-    s, _ = max(buttons, key=lambda b: b[0][4])
-    return x0 + int(s[0]) + int(s[2]) // 2, y0 + int(s[1]) + int(s[3]) // 2
+    _, c = max(buttons, key=lambda b: b[0][4])
+    return x0 + int(c[0]), y0 + int(c[1])
 
 
 def find_buy_cancel(img: np.ndarray) -> Point | None:

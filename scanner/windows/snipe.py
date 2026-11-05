@@ -4,8 +4,8 @@ Wait for the new server, walk up to the seller's stall (W, then S), hold E to op
 still there (green cash button, then the green check; with too little cash, only the X of Roblox's "Buy Robux"
 box), leave the stall (red X), then list on the market: Inventory,
 All, Inspect, Sell on Market, the green check in "Claim this stall?", hold E, and the green check in "Want to use the
-same items as last time?". Every click waits for its button's colour at its fixed point (screens.SNIPE); anything
-that does not show in time stops the whole flow with nothing more sent.
+same items as last time?". Every click waits for its button's colour at its fixed point (screens.SNIPE; Inspect, which
+moves, is found by colour alone); anything that does not show in time stops the whole flow with nothing more sent.
 """
 import time
 
@@ -32,13 +32,19 @@ class TeleportFailed(Stopped):
     """Roblox said "Teleport Failed" (server full); its Ok was clicked, so the results list shows again."""
 
 
+def _look(hwnd: int, last=None):
+    """The screen now; stops, keeping the `last` screen for the diagnostics, if Roblox lost focus."""
+    img = screen.capture(hwnd)
+    if img is None:
+        raise Stopped(f"Roblox lost focus ({screen.foreground_title()!r} was in front)", last)
+    return img
+
+
 def _wait(hwnd: int, seconds: float, find):
     """Look again and again until find(img) gives a point; (point, img). Stops on lost focus or after `seconds`."""
     end = time.time() + seconds
     while True:
-        img = screen.capture(hwnd)
-        if img is None:
-            raise Stopped(f"Roblox lost focus ({screen.foreground_title()!r} was in front)")
+        img = _look(hwnd)
         point = find(img)
         if point is not None:
             return point, img
@@ -130,25 +136,19 @@ def _scroll_stall(hwnd: int, cfg, img):
     x0, y0, w, h = screen.client_rect(hwnd)
     if not controller.scroll(hwnd, x0 + w // 2, y0 + h // 2, cfg.stall_scroll_notches):
         raise Stopped("Roblox lost focus while scrolling the stall", img)
-    for wait in (0.3, 0.6):  # a slow start must not read as "the end": look again before giving up
-        time.sleep(wait)
-        cur = screen.capture(hwnd)
-        if cur is None:
-            raise Stopped(f"Roblox lost focus ({screen.foreground_title()!r} was in front)")
-        if navigate._grid_change(cur, img) >= 1.0:
+    for _ in range(6):  # up to 0.9 s: a slow start must not read as "the end"
+        time.sleep(0.15)
+        new = _look(hwnd, img)
+        if navigate._grid_change(new, img) >= 1.0:
             break
     else:
         return None
-    new = cur
     for _ in range(12):  # it is gliding: wait until two looks are alike
         time.sleep(0.15)
-        cur = screen.capture(hwnd)
-        if cur is None:
-            raise Stopped(f"Roblox lost focus ({screen.foreground_title()!r} was in front)")
-        done = navigate._grid_change(cur, new) < 1.0
+        cur = _look(hwnd, new)
+        if navigate._grid_change(cur, new) < 1.0:
+            return cur
         new = cur
-        if done:
-            break
     return new
 
 
@@ -235,8 +235,11 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
                 _steps["short"] = True
                 _press(hwnd, cfg, "robux_box_x", screens.find_robux_prompt_close)
     _press(hwnd, cfg, "stall_exit")
-    for name in ("inventory", "inventory_all", "inspect", "sell_on_market", "claim_check"):
-        _press(hwnd, cfg, name, screens.find_inspect if name == "inspect" else None)  # Inspect moves with the item shown
+    _press(hwnd, cfg, "inventory")
+    _press(hwnd, cfg, "inventory_all")
+    _press(hwnd, cfg, "inspect", screens.find_inspect)  # it moves with the item shown
+    _press(hwnd, cfg, "sell_on_market")
+    _press(hwnd, cfg, "claim_check")
     _hold(hwnd, E, cfg.hold_e_seconds)
     _press(hwnd, cfg, "same_items_check")
     done = ("Not enough cash (closed Roblox's Buy Robux box); nothing bought" if _steps["short"] else

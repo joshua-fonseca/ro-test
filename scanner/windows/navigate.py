@@ -135,13 +135,14 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
             return False, f"the {rarity} filter did not light up"
     # Fixed slot on a 16:9 window. The finder (by shape) was seen returning a point below the bar (333, 1040 for a
     # 1900x1069 window with a busy Secret grid), and trusting it over the fixed point missed the box every time.
-    if img is not None and screens.classify(img) != "collection":  # the fixed point is only right on the collection screen
+    if img is None:  # no collection screen in time, or Roblox lost focus
+        return False, "no search box on the collection screen"
+    if screens.classify(img) != "collection":  # the fixed point is only right on the collection screen
         save("not_collection_for_search", img)
         return False, "not on the collection screen when the search box was to be clicked"
-    point = None if img is None else (layout.fixed(img, "search_box") or screens.find_search_box(img))
+    point = layout.fixed(img, "search_box") or screens.find_search_box(img)
     if point is None:
-        if img is not None:
-            save("no_search_box", img)
+        save("no_search_box", img)
         return False, "no search box on the collection screen"
     if not _click(hwnd, point, img):
         return False, "click not sent (Roblox lost focus, or the window changed size)"

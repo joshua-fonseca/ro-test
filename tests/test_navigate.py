@@ -277,6 +277,7 @@ def test_a_paste_that_did_not_land_is_clicked_and_pasted_once_more(monkeypatch):
 
 def test_the_search_box_is_not_clicked_on_a_screen_that_is_not_the_collection(monkeypatch):
     w = World(monkeypatch)
-    monkeypatch.setattr(navigate.screens, "classify", lambda img: "options")  # a modal is open
+    looks = iter(["collection", "options"])  # a modal opened after the screen was first seen
+    monkeypatch.setattr(navigate.screens, "classify", lambda img: next(looks))
     ok, why = navigate.search_for(1, "Nya Reaper")
-    assert not ok and "collection screen" in why and w.pasted == []
+    assert not ok and why.startswith("not on the collection screen") and w.pasted == [] and w.clicks == []

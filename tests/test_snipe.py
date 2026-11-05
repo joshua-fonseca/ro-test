@@ -49,7 +49,7 @@ def test_the_matched_item_is_bought_and_the_stall_put_up_again(monkeypatch):
 
 
 def test_an_item_that_is_gone_is_not_bought_and_the_rest_goes_on(monkeypatch):
-    done, run = _flow(monkeypatch, [6, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)  # the extra 8s: the scroll that moves nothing, looked at twice
+    done, run = _flow(monkeypatch, [6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)  # the extra 8s: the scroll that moves nothing, looked at twice
     assert run().startswith("The item was gone")
     assert len([d for d in done if d[0] == "click"]) == 7  # exit, inventory, All, Inspect, Sell, claim, same items
 
@@ -141,7 +141,7 @@ def test_not_enough_cash_closes_the_robux_box_and_goes_on(monkeypatch):
 
 
 def test_a_world_screen_before_the_loading_screen_does_not_count_as_arrived(monkeypatch):
-    frames = iter([shot(6), shot(6), BLACK] + [shot(n) for n in (6, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6)])
+    frames = iter([shot(6), shot(6), BLACK] + [shot(n) for n in (6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6)])
     # still the old server, then loading, then the new one
     looks = []
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: looks.append(1) or next(frames), raising=False)
@@ -173,7 +173,7 @@ def test_every_click_keeps_the_screen_before_it_in_order(monkeypatch):
 
 
 def test_an_ignored_click_on_the_stall_x_is_sent_again(monkeypatch):
-    done, run = _flow(monkeypatch, [6, 8, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)
+    done, run = _flow(monkeypatch, [6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)
     assert run().startswith("The item was gone")  # the stall was still open after the first click on its X
     exit_point = screens.snipe_button(shot(8), "stall_exit")
     assert [d[1] for d in done if d[0] == "click"][:2] == [exit_point, exit_point]
@@ -242,7 +242,7 @@ def test_the_item_further_down_the_stall_is_found_by_scrolling(monkeypatch):
 
 def test_the_scrolling_stops_at_the_end_of_the_stall(monkeypatch):
     s1 = _stall(1)
-    done, run = _scrolling(monkeypatch, [6, 8, s1, s1, s1, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 10)
+    done, run = _scrolling(monkeypatch, [6, 8, s1, s1, s1, s1, s1, s1, s1, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 10)
     assert run().startswith("The item was gone")  # the list did not move after the scroll: nothing further down
     assert [d for d in done if d[0] == "scroll"] == [("scroll", 3)]
 
@@ -259,7 +259,8 @@ def test_inspect_is_found_by_colour_whatever_the_row_above_it(monkeypatch):
     x, y = screens.find_inspect(equipped)
     assert abs(x - 510) < 15 and abs(y - 613) < 15  # the middle of the button (the fixed point was 657: its gap)
     plain = shot(11)  # an item with the Equip button above it: the button sits elsewhere, the finder follows
-    assert screens.find_inspect(plain) == (353, 456)
+    x, y = screens.find_inspect(plain)
+    assert abs(x - 353) < 10 and abs(y - 456) < 10
     assert screens.find_inspect(shot(8)) is None  # not an inventory screen
 
 
@@ -274,7 +275,7 @@ def test_a_slow_start_of_the_scroll_is_not_taken_for_the_end_of_the_stall(monkey
 
 def test_the_stall_screen_is_still_saved_when_the_search_ends_at_the_bottom(monkeypatch):
     s1 = _stall(1)
-    _, _ = _scrolling(monkeypatch, [6, 8, s1, s1, s1, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 10)
+    _scrolling(monkeypatch, [6, 8, s1, s1, s1, s1, s1, s1, s1, s1, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 10)
     saved = []
     snipe.after_teleport(1, FAST, "Plastic Toy WA 2000", 10, 10, lambda name, img: saved.append((name, img)))
     assert [img is not None for name, img in saved if name == "snipe_stall"] == [True]  # a real saver cannot write None
