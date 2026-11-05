@@ -104,9 +104,10 @@ def classify(img: np.ndarray) -> str:
     """
     h, w = img.shape[:2]
     bar = _search_bar(img)
-    if bar is not None and bar[1] > 0.8 * h:  # the real bar sits low; a grey strip inside the results list does not
-        return "collection"
     box = modal_box(img)
+    small_modal = box is not None and box[2] >= 0.3 * w and box[3] < 0.5 * h  # Search Options: the dimmed bar can still read as the bar (seen live at 1700 wide)
+    if bar is not None and bar[1] > 0.8 * h and not small_modal:  # the real bar sits low; a grey strip inside the results list does not
+        return "collection"
     if box is None or box[2] < 0.3 * w:  # no modal, or only a speck of the background colour (the game world)
         return "empty" if _empty_box(img) else "unknown"
     return "options" if box[3] < 0.5 * img.shape[0] else "results"

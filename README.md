@@ -134,6 +134,12 @@ The window must be 16:9 (the layout is measured in fractions of it). With severa
 Optional `config.json` next to `main.py` overrides the defaults in `scanner/logic/config.py` (waits, holds, scroll
 counts). Unknown keys are ignored.
 
+- Example `config.json`: the Teleport wait is 60 s by default; this gives a slow server 120 s before the run stops.
+
+```json
+{"teleport_max_seconds": 120}
+```
+
 ## Develop and test (WSL or Linux)
 
 ```bash

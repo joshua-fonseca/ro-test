@@ -198,3 +198,9 @@ def test_no_listings_is_read_from_the_title_in_the_lists_own_dark_grey_too():
     assert screens.no_listings(cv2.imread("sniper_arena_scanner_handoff/live_no_listings.png"))  # the lighter grey
     assert not screens.no_listings(load("sniper_arena_scanner_handoff/live_empty_price_read.png"))  # a list with cards
     assert not screens.no_listings(load("sniper_arena_scanner_handoff/live_search_empty_no_caret.png"))  # not a box at all
+
+
+def test_search_options_at_1700_wide_is_not_taken_for_the_collection_screen():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_options_1700.png")  # the dimmed search bar still reads as the bar here
+    assert img is not None and screens._search_bar(img) is not None
+    assert screens.classify(img) == "options" and screens.find_check_button(img) is not None
