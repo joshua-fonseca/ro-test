@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from scanner.logic.models import Listing, Target
-from scanner.logic.storage import Store, add_discovered_skins, append_csv, format_match_line, listing_id, setup_run_log
+from scanner.logic.storage import Store, append_csv, format_match_line, listing_id, setup_run_log
 
 NOW = datetime(2026, 10, 28, 13, 5, tzinfo=timezone.utc)
 TARGET = Target("Nocturne Marlin [Rainbow]", "Sniper", "Secret", 9000, None, True)
@@ -124,29 +124,6 @@ def test_scan_log_appends_and_is_never_cleared(tmp_path):
         s.begin_cycle("c1")
         s.log_scan(NOW, TARGET, "complete", listings_seen=6, matches=1)
     assert len(rows(tmp_path / "scan_log.csv")) == 2
-
-
-def test_discovery_appends_dedups_and_fills_only_skin_name(tmp_path):
-    p = tmp_path / "discovered_skins.csv"
-    assert add_discovered_skins(p, ["A", "B", "a", " B "]) == ["A", "B"]
-    assert add_discovered_skins(p, ["b", "C"]) == ["C"]
-    got = rows(p)
-    assert [r["skin_name"] for r in got] == ["A", "B", "C"]
-    assert all(v == "" for r in got for k, v in r.items() if k != "skin_name")
-
-
-def test_discovery_dry_run_writes_nothing(tmp_path):
-    p = tmp_path / "discovered_skins.csv"
-    assert add_discovered_skins(p, ["A"], dry_run=True) == ["A"]
-    assert not p.exists()
-
-
-def test_discovery_never_touches_targets_csv(tmp_path):
-    t = tmp_path / "targets.csv"
-    t.write_text("skin_name,category,rarity,max_price,max_serial,enabled\nA,Sniper,Secret,1,,true\n")
-    before = t.read_bytes()
-    add_discovered_skins(tmp_path / "discovered_skins.csv", ["A", "B"])
-    assert t.read_bytes() == before
 
 
 def test_run_log_truncates_but_csv_history_stays(tmp_path):

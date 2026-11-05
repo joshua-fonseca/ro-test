@@ -17,10 +17,17 @@ winget install --id Git.Git -e
 winget install --id UB-Mannheim.TesseractOCR -e
 ```
 
-   Or by hand: Python from python.org (tick "Add python.exe to PATH"), Git from git-scm.com, and Tesseract
-   OCR (the UB Mannheim Windows build, 5.x) from github.com/UB-Mannheim/tesseract/wiki. Keep Tesseract in its
-   default folder: the scanner looks for `C:\Program Files\Tesseract-OCR\tesseract.exe` (it is not on PATH).
-   The default English language data is enough.
+<details>
+<summary>Or install by hand</summary>
+
+- Python: python.org (tick "Add python.exe to PATH").
+- Git: git-scm.com.
+- Tesseract OCR: the UB Mannheim Windows build (5.x), from github.com/UB-Mannheim/tesseract/wiki.
+  - Keep it in its default folder: the scanner looks for `C:\Program Files\Tesseract-OCR\tesseract.exe` (it is not on PATH).
+  - The default English language data is enough.
+
+</details>
+
 2. Check them (each should print a version, and the last should print `True`):
 
 ```powershell
@@ -40,11 +47,13 @@ python -m venv $env:USERPROFILE\.venvs\ro-test
 & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-   `requirements.txt` installs `pillow` (screenshots), `opencv-python-headless` and `numpy` (image matching), and
-   `pytesseract` (the link to Tesseract). Nothing else is needed: the mouse and keyboard use Windows itself (ctypes).
+   `requirements.txt` installs:
+   - `pillow`: screenshots of the game.
+   - `opencv-python-headless` and `numpy`: image matching.
+   - `pytesseract`: the link to Tesseract.
 
-4. Update later with `git pull` (if it refuses because of a local `targets.csv` change, commit it or run
-   `git checkout targets.csv` first).
+4. Update later with `git pull` (if the repo changes).
+   - If it refuses because of a local `targets.csv` change, commit it or run `git checkout targets.csv` first.
 
 ## Choose what to scan: `targets.csv`
 
@@ -55,14 +64,14 @@ Wild Fiend Crossbow,Sniper,Limited,15,,true
 Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 ```
 
-- `rarity` is `Secret` or `Limited` (the scanner clicks that filter first). `max_serial` can be empty.
-- Only rows with `enabled=true` and a `max_price` are scanned. A row with the wrong number of columns is skipped
-  (a warning goes to `output/run.log`).
-- The program never edits `targets.csv`.
+- `category` is `Sniper` or `Knife`.
+- `rarity` is `Secret` or `Limited` (the scanner clicks that filter first).
+- `max_serial` can be empty.
+- Only rows with `enabled=true` and a `max_price` are scanned. A row with the wrong number of columns is skipped (a warning goes to `output/run.log`).
 
 ## Run
 
-1. Open the game, log in, join S.Arena and open the Search Menu.
+1. Open the game, log in, join S.Arena, go to the trading market and go to the Search Menu. Don't type anything or change any filters.
 2. In PowerShell, from the `ro-test` folder:
 
 ```powershell
@@ -76,21 +85,27 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe main.py --snipe --width 1900
 ```
 
-3. Press `y` + Enter when asked, then click the **title bar** of the game window and take your hands off the
+3. Press `y` + Enter when asked, then click on the game window and take your hands off the
    mouse and keyboard. The game must stay in front: if it loses focus the scanner pauses and sends nothing.
 4. Stop with **Ctrl+C**.
+
+Commonly used flags:
 
 | Flag | Meaning |
 |---|---|
 | `--snipe` | on the first match: Teleport, buy from the seller's stall, relist your own stall, stop |
 | `--dry-run` | with `--snipe`: everything except the buy (the confirm box is cancelled) |
 | `--width N` / `--height N` | first resize every game window so the game area is N px wide / high (16:9). Run it once per session. 1900 works on a 1920x1200 screen |
+
+Less used options:
+
+| Flag | Meaning |
+|---|---|
 | `--wait N` | seconds to click the game's title bar (default 30) |
 | `--cycles N` | stop after N passes over `targets.csv` (default: until Ctrl+C) |
 | `--clear-matches` | delete `matches.csv` and the saved match pictures first |
 
-The window must be 16:9 (the layout is measured in fractions of it). With several game windows `--width` resizes
-them all; the one whose title bar you click is the one used.
+The window must be 16:9 (the layout is measured in fractions of it). With several game windows `--width` resizes them all.
 
 ## Safety rules
 
@@ -101,8 +116,9 @@ them all; the one whose title bar you click is the one used.
 
 ## Output (in `output/`, not committed)
 
-`run.log` (what happened, one line per click), `matches.csv` and the match pictures, `discovered_skins.csv`
-(from discovery), and `probe/` (step pictures; when a step fails, look at the last `snipe_NN_*.png` or `nav_*.png`).
+- `run.log`: what happened, one line per click.
+- `matches.csv` and the match pictures.
+- `probe/`: step pictures. When a step fails, look at the last `snipe_NN_*.png` or `nav_*.png`.
 
 ## Settings
 

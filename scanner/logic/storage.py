@@ -3,7 +3,6 @@
 matches.csv / listings.csv / scan_log.csv  append-only history, never cleared
 listing_state.json                         latest status per listing, survives restarts
 run.log                                    diagnostics, truncated each start
-discovered_skins.csv                       discovery results only, never targets.csv
 """
 import csv
 import hashlib
@@ -19,7 +18,6 @@ from scanner.logic.parsing import format_serial
 
 log = logging.getLogger(__name__)
 
-TARGET_FIELDS = ["skin_name", "category", "rarity", "max_price", "max_serial", "enabled"]
 ROW_FIELDS = ["scan_id", "observed_at", "skin_name", "category", "rarity", "stattrak", "serial", "price",
               "price_approx", "seller_display_name", "listing_id", "screenshot_path", "crop_status"]
 LISTING_FIELDS = ROW_FIELDS + ["matched"]
@@ -156,23 +154,6 @@ class Store:
         tmp = self.state_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self.state, indent=1), encoding="utf-8")
         os.replace(tmp, self.state_path)  # atomic: an interrupt never leaves half a file
-
-
-def add_discovered_skins(path: Path, names: list[str], dry_run: bool = False) -> list[str]:
-    """Append skin names not already present. Only skin_name is filled; other columns stay blank."""
-    known: set[str] = set()
-    if path.exists():
-        with open(path, newline="", encoding="utf-8") as f:
-            known = {(r.get("skin_name") or "").strip().casefold() for r in csv.DictReader(f)}
-    new: list[str] = []
-    for name in (n.strip() for n in names):
-        if name and name.casefold() not in known:
-            known.add(name.casefold())
-            new.append(name)
-    if not dry_run:
-        for name in new:
-            append_csv(path, TARGET_FIELDS, {"skin_name": name})
-    return new
 
 
 def setup_run_log(output_dir: str | Path) -> logging.Handler:
