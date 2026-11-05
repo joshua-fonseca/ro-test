@@ -56,7 +56,10 @@ def _search_bar(img: np.ndarray) -> tuple[int, int, int, int] | None:
     strip = img[y0:int(0.935 * h), :int(0.7 * w)]
     mask = (np.abs(strip.astype(int) - _SEARCH_BAR).max(2) <= 8).astype(np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 25), np.uint8))
-    bars = [(s, c) for s, c in _components(mask, int(0.004 * w * h)) if s[2] >= 0.15 * w]
+    # the bar's body is mid-grey (about 65); behind a dimmed box only its bottom lip still matches the colour and the
+    # body is about 38 (seen live at 1700 wide)
+    bars = [(s, c) for s, c in _components(mask, int(0.004 * w * h))
+            if s[2] >= 0.15 * w and np.median(strip[s[1]:s[1] + s[3], s[0]:s[0] + s[2]]) >= 52]
     if not bars:
         return None
     s, _ = max(bars, key=lambda b: b[0][4])
@@ -104,10 +107,9 @@ def classify(img: np.ndarray) -> str:
     """
     h, w = img.shape[:2]
     bar = _search_bar(img)
-    box = modal_box(img)
-    small_modal = box is not None and box[2] >= 0.3 * w and box[3] < 0.5 * h  # Search Options: the dimmed bar can still read as the bar (seen live at 1700 wide)
-    if bar is not None and bar[1] > 0.8 * h and not small_modal:  # the real bar sits low; a grey strip inside the results list does not
+    if bar is not None and bar[1] > 0.8 * h:  # the real bar sits low; a grey strip inside the results list does not
         return "collection"
+    box = modal_box(img)
     if box is None or box[2] < 0.3 * w:  # no modal, or only a speck of the background colour (the game world)
         return "empty" if _empty_box(img) else "unknown"
     return "options" if box[3] < 0.5 * img.shape[0] else "results"
