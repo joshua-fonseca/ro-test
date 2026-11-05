@@ -248,7 +248,7 @@ def test_filters_that_are_already_on_are_not_clicked_again(monkeypatch):
     w = World(monkeypatch, size=(1920, 1080))
     monkeypatch.setattr(navigate.screens, "rarity_is_on", lambda img, r: True)
     assert navigate.search_for(1, "Nya Reaper", category="Knife", rarity="Limited", filters_on=True) == (True, "")
-    assert w.clicks == [(60, 80)]  # only the search box
+    assert w.clicks == [(10 + 623, 20 + 959)]  # only the search box, at its fixed slot
 
 
 def test_filters_on_still_checks_the_rarity_and_clicks_it_if_the_game_reset_it(monkeypatch):
@@ -273,3 +273,10 @@ def test_a_paste_that_did_not_land_is_clicked_and_pasted_once_more(monkeypatch):
     assert navigate.search_for(1, "Nya Reaper") == (True, "")
     assert calls == ["Nya Reaper"] * 2 and w.typed == []
     assert w.clicks.count(w.clicks[-1]) == 2  # the search box (the last click) was clicked a second time
+
+
+def test_the_search_box_is_not_clicked_on_a_screen_that_is_not_the_collection(monkeypatch):
+    w = World(monkeypatch)
+    monkeypatch.setattr(navigate.screens, "classify", lambda img: "options")  # a modal is open
+    ok, why = navigate.search_for(1, "Nya Reaper")
+    assert not ok and "collection screen" in why and w.pasted == []

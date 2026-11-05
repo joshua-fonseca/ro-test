@@ -5,6 +5,7 @@ Windows only. Start with the collection screen open (any text in the search box 
 Every click uses a point from screens.find_*, which only returns one on the screen it belongs to; each step waits
 for the next screen to show before going on, and anything unexpected stops with nothing more clicked.
 """
+import logging
 import re
 import sys
 import time
@@ -15,6 +16,9 @@ from scanner.windows import controller
 from scanner.reading import layout
 from scanner.windows import screen
 from scanner.reading import screens
+
+
+log = logging.getLogger(__name__)
 
 
 def wait_for(hwnd: int, state: str, seconds: float):
@@ -61,6 +65,7 @@ def _click(hwnd: int, point, img, hover: float = 0) -> bool:
     if (w, h) != (img.shape[1], img.shape[0]):
         return False
     x, y = x0 + point[0], y0 + point[1]
+    log.info("click at %s in a %dx%d capture; game area at %d,%d %dx%d on screen: screen point %d,%d", point, img.shape[1], img.shape[0], x0, y0, w, h, x, y)
     return controller.click(hwnd, x, y, hover) if hover else controller.click(hwnd, x, y)
 
 
@@ -128,7 +133,12 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         else:
             save("rarity_not_on", img)
             return False, f"the {rarity} filter did not light up"
-    point = None if img is None else layout.point(img, "search_box", lambda: screens.find_search_box(img))
+    # Fixed slot on a 16:9 window. The finder (by shape) was seen returning a point below the bar (333, 1040 for a
+    # 1900x1069 window with a busy Secret grid), and trusting it over the fixed point missed the box every time.
+    if img is not None and screens.classify(img) != "collection":  # the fixed point is only right on the collection screen
+        save("not_collection_for_search", img)
+        return False, "not on the collection screen when the search box was to be clicked"
+    point = None if img is None else (layout.fixed(img, "search_box") or screens.find_search_box(img))
     if point is None:
         if img is not None:
             save("no_search_box", img)

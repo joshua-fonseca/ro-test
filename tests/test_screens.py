@@ -178,3 +178,10 @@ def test_an_unlit_rarity_button_is_not_read_as_lit_even_with_a_bright_bottom_lip
     for f in ("live_rarity_off_search_1900.png", "live_rarity_off_options_1900.png"):  # seen live: Secret off
         img = cv2.imread(f"sniper_arena_scanner_handoff/{f}")
         assert not screens.rarity_is_on(img, "Secret") and not screens.rarity_is_on(img, "Limited")
+
+
+def test_the_search_bar_is_not_confused_with_a_grey_strip_at_the_window_bottom():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_search_text_150pct_1900.png")  # name pasted, grid down to 1 tile
+    x, y, w, h = screens._search_bar(img)
+    assert 900 < y < 960 and w > 600  # the real bar, not the strip at y 1011
+    assert screens.search_has_text(img)

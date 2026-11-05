@@ -2,8 +2,9 @@
 
 A fixed point is only trusted after the screenshot finder has agreed with it once (per window size and button):
 if the game's layout does not scale the way the fractions assume, the finder's point is used instead. Exceptions,
-read through fixed() with no finder: the rarity buttons and the first tile (its finder, by red shape, misses pale
-rainbow tiles; the Search Options name check catches a wrong tile). Pure maths,
+read through fixed() with no finder: the rarity buttons, the first tile (its finder, by red shape, misses pale
+rainbow tiles; the Search Options name check catches a wrong tile) and the search box (its finder once picked a
+grey strip at the window bottom). Pure maths,
 no Windows calls.
 """
 from typing import Callable

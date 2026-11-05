@@ -36,7 +36,9 @@ def _search_bar(img: np.ndarray) -> tuple[int, int, int, int] | None:
     """The grey search bar as (left, top, width, height); None if there is none."""
     h, w = img.shape[:2]
     y0 = int(0.75 * h)
-    strip = img[y0:, :int(0.7 * w)]
+    # Not down to the bottom edge: the blurred game behind the window can be the same grey (seen live at 150% scale: a
+    # strip at 94.6% of the height beat the real bar, which ends at 91.4%, and every search click and text check missed)
+    strip = img[y0:int(0.935 * h), :int(0.7 * w)]
     mask = (np.abs(strip.astype(int) - _SEARCH_BAR).max(2) <= 8).astype(np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 25), np.uint8))
     bars = [(s, c) for s, c in _components(mask, int(0.004 * w * h)) if s[2] >= 0.15 * w]
