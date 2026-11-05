@@ -62,7 +62,7 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 
 ## Run
 
-1. Open the game, log in, join S.Arena and open the **collection** screen (Search Options closed).
+1. Open the game, log in, join S.Arena and open the Search Menu.
 2. In PowerShell, from the `ro-test` folder:
 
 ```powershell
