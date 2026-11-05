@@ -1,0 +1,1 @@
+backend=rapidocr ocr_calls=1927 ocr_seconds=211.1 mean_ms=110
