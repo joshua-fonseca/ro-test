@@ -52,12 +52,19 @@ python -m venv $env:USERPROFILE\.venvs\ro-test
    - `opencv-python-headless` and `numpy`: image matching.
    - `pytesseract`: the link to Tesseract.
 
-4. Update later with `git pull` (if the repo changes).
-   - If it refuses because of a local `targets.csv` change, commit it or run `git checkout targets.csv` first.
+4. Make your own skin list: copy `targets.example.csv` to `targets.csv` and edit it (next section).
+   `targets.csv` is ignored by git, so it stays on your machine and `git pull` never touches it.
+
+```powershell
+copy targets.example.csv targets.csv
+```
+
+5. Update later with `git pull` (if the repo changes).
 
 ## Choose what to scan: `targets.csv`
 
 One row per skin: `skin_name,category,rarity,max_price,max_serial,enabled`.
+Use the full name as the game shows it: `Nya Machete` and `Nya Machete [Rainbow]` are two different skins.
 
 ```
 Wild Fiend Crossbow,Sniper,Limited,15,,true

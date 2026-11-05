@@ -1,0 +1,5 @@
+skin_name,category,rarity,max_price,max_serial,enabled
+# Copy this file to targets.csv and edit it. skin_name is the full name as the game shows it (a variant has its own name:
+# "Nya Machete" and "Nya Machete [Rainbow]" are different skins). category: Sniper or Knife. rarity: Secret or Limited.
+Wild Fiend Crossbow,Sniper,Limited,15,,true
+Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
