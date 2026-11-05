@@ -8,6 +8,10 @@ from scanner.reading import vision  # noqa: E402
 FIX = "sniper_arena_scanner_handoff/*{}.png"
 
 
+def read_cards(img):
+    return [vision.read_card(img, b) for b in vision.find_cards(img)]
+
+
 def load_path(path):
     img = cv2.imread(path)
     if img is None:
@@ -50,7 +54,7 @@ def test_cards(stamp):
     img = load(stamp)
     records, expected = CASES[stamp]
     assert vision.read_record_count(img) == records
-    cards = vision.read_cards(img)
+    cards = read_cards(img)
     full = [c for c in cards if c.complete]
     assert len(full) == len(expected)
     assert all(c.listing is None for c in cards if not c.complete)
@@ -72,7 +76,7 @@ def test_cards(stamp):
 
 def test_clipped_card_has_no_serial():
     img = load("163556")
-    last = vision.read_cards(img)[-1]
+    last = read_cards(img)[-1]
     assert not last.complete and last.listing is None
 
 
@@ -85,7 +89,7 @@ def test_a_loading_seller_does_not_matter():
     files = glob.glob("sniper_arena_scanner_handoff/loading_*.png")
     if not files:
         pytest.skip("fixture screenshots missing")
-    cards = [c for c in vision.read_cards(cv2.imread(files[0])) if c.complete]
+    cards = [c for c in read_cards(cv2.imread(files[0])) if c.complete]
     assert any(c.listing for c in cards)  # the seller is not read, so [Loading...] no longer blocks a card
 
 
@@ -101,7 +105,7 @@ def test_small_window_leaves_serials_unreadable():
     # At 1200 wide all three OCR reads once agreed on '#262' for '#282'.
     img = load("125355")
     small = cv2.resize(img, (1200, round(img.shape[0] * 1200 / img.shape[1])), interpolation=cv2.INTER_AREA)
-    listings = [c.listing for c in vision.read_cards(small) if c.listing]
+    listings = [c.listing for c in read_cards(small) if c.listing]
     assert [x.serial for x in listings] == [None, None]
     assert [x.stattrak for x in listings] == [False, True]  # colour still tells #610 from #ST.291
 

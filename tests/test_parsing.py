@@ -1,6 +1,6 @@
 import pytest
 
-from scanner.logic.parsing import format_serial, parse_price, parse_rarity, parse_serial, price_high, price_is_approximate
+from scanner.logic.parsing import format_serial, parse_price, parse_serial, price_high, price_is_approximate
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -26,15 +26,6 @@ def test_format_serial_round_trips():
     assert format_serial(610, False) == "#610"
     assert format_serial(291, True) == "#ST.291"
     assert parse_serial(format_serial(291, True)) == (291, True)
-
-
-@pytest.mark.parametrize("tag,expected", [
-    ("[SCRT]", "Secret"), ("[HSCRT]", "Secret"), ("HSCRT", "Secret"),
-    ("[LTD]", "Limited"), ("[HLTD]", "Limited"), ("[ltd]", "Limited"),
-    ("[ST]", None), ("", None),
-])
-def test_parse_rarity(tag, expected):
-    assert parse_rarity(tag) == expected
 
 
 def test_price_is_approximate_only_for_abbreviated_prices():

@@ -53,16 +53,6 @@ def test_caret_shows_only_in_the_focused_search_box():
     assert not screens.search_caret(load(base + "live_search_empty_no_caret.png"))
 
 
-def test_skin_tile_is_found_only_when_its_label_matches():
-    img = load("sniper_arena_scanner_handoff/live_search_typed.png")
-    x, y = screens.find_skin_tile(img, "Starveil AWP")
-    assert (540, 238) < (x, y) < (703, 402)  # inside the one tile (live 1920x1166 frame)
-    assert screens.find_skin_tile(img, "Nocturne AWP") is None  # a different name must not click this tile
-    # Unfiltered grid: the Starveil AWP tile is on screen too, and is the one that is found (not its neighbours)
-    assert screens.find_skin_tile(load("sniper_arena_scanner_handoff/live_search_focused.png"), "Starveil AWP") is not None
-    assert screens.find_skin_tile(load("sniper_arena_scanner_handoff/Screenshot 2026-10-28 125355.png"), "Starveil AWP") is None  # results screen
-
-
 def test_options_box_must_show_the_requested_skin():
     img = load("sniper_arena_scanner_handoff/live_options.png")
     assert screens.options_is_for(img, "Starveil AWP")
@@ -89,9 +79,15 @@ def test_category_buttons_are_found_by_their_labels():
 
 def test_dim_unowned_tile_is_found_and_split_tiles_count_once():
     base = "sniper_arena_scanner_handoff/"
-    assert screens.find_skin_tile(load(base + "live_knife_tiles.png"), "Nya Reaper") is not None  # dimmed, rainbow border
-    assert screens.find_skin_tile(load(base + "live_knife_tiles.png"), "Nya") is None  # a part of a name is not a hit
-    assert screens.find_skin_tile(load(base + "live_search_typed.png"), "Starveil AWP") is not None  # art splits the tile
+
+    def tiles(file, name):
+        img = load(base + file)
+        h, w = img.shape[:2]
+        return screens._tiles_named(img, name, (int(0.28 * w), int(0.18 * h), int(0.84 * w), int(0.82 * h)))
+
+    assert len(tiles("live_knife_tiles.png", "Nya Reaper")) == 1  # dimmed, rainbow border
+    assert tiles("live_knife_tiles.png", "Nya") == []  # a part of a name is not a hit
+    assert len(tiles("live_search_typed.png", "Starveil AWP")) == 1  # art splits the tile
 
 
 def test_search_options_for_a_dim_rainbow_skin_names_it():

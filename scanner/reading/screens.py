@@ -226,15 +226,6 @@ def find_first_tile(img: np.ndarray) -> Point | None:
     return x0 + int(c[0]), y0 + int(c[1])
 
 
-def find_skin_tile(img: np.ndarray, name: str) -> Point | None:
-    """Centre of the one tile in the (searched) skin grid whose label is `name`; None if not exactly one."""
-    if classify(img) != "collection":
-        return None
-    h, w = img.shape[:2]
-    hits = _tiles_named(img, name, (int(0.28 * w), int(0.18 * h), int(0.84 * w), int(0.82 * h)))
-    return hits[0] if len(hits) == 1 else None
-
-
 def options_is_for(img: np.ndarray, name: str) -> bool:
     """True if the Search Options box shows skin `name` (the picture and label above its title)."""
     if classify(img) != "options":

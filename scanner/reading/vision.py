@@ -277,10 +277,6 @@ def has_banner(img: np.ndarray) -> bool:
     return banner_rows.sum() >= 0.02 * img.shape[0]
 
 
-def read_cards(img: np.ndarray, seen: list | None = None) -> list[Card]:
-    return [read_card(img, b, seen) for b in find_cards(img)]
-
-
 def read_record_count(img: np.ndarray) -> int | None:
     """'N records found' from the modal title, which sits above the first card."""
     cards = find_cards(img)
