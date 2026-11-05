@@ -414,7 +414,7 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         while True:
             if img is None or any(vision.is_complete(b) for b in vision.find_cards(img)):
                 break
-            if screens.classify(img) == "empty":  # no seller has it: nothing to read (not a failure)
+            if screens.no_listings(img):  # no seller has it: nothing to read (not a failure)
                 print("No listings found; nothing to scan")
                 store.log_scan(now, target, "no_listings")
                 return 0, navigated

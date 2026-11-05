@@ -190,3 +190,11 @@ def test_the_no_listings_box_is_its_own_screen_with_a_close_button():
     assert 878 < x < 1011 and 808 < y < 875  # inside the red X button at the bottom centre of the box
     assert screens.classify(load("sniper_arena_scanner_handoff/live_empty_price_read.png")) == "results"  # a real list is not it
     assert screens.classify(load("sniper_arena_scanner_handoff/live_search_empty_no_caret.png")) == "collection"
+
+
+def test_no_listings_is_read_from_the_title_in_the_lists_own_dark_grey_too():
+    dark = cv2.imread("sniper_arena_scanner_handoff/live_no_listings_dark_1900.png")  # seen live: classify says "results"
+    assert screens.classify(dark) == "results" and screens.no_listings(dark)
+    assert screens.no_listings(cv2.imread("sniper_arena_scanner_handoff/live_no_listings.png"))  # the lighter grey
+    assert not screens.no_listings(load("sniper_arena_scanner_handoff/live_empty_price_read.png"))  # a list with cards
+    assert not screens.no_listings(load("sniper_arena_scanner_handoff/live_search_empty_no_caret.png"))  # not a box at all

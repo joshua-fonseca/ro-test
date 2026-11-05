@@ -112,6 +112,21 @@ def classify(img: np.ndarray) -> str:
     return "options" if box[3] < 0.5 * img.shape[0] else "results"
 
 
+def no_listings(img: np.ndarray) -> bool:
+    """True if the box on screen says "No listings found". It comes in two greys: a lighter one (its own screen,
+    "empty") and the list's own dark one with no cards, which only its title tells from a list still loading (OCR, so
+    call it only when no card is on screen)."""
+    state = classify(img)
+    if state == "empty":
+        return True
+    if state != "results":
+        return False
+    x, y, w, h = modal_box(img)
+    band = img[y + int(0.03 * h):y + int(0.14 * h), x + int(0.3 * w):x + int(0.7 * w)]
+    return band.size > 0 and any("nolistings" in _letters(pytesseract.image_to_string(v, config="--psm 7"))
+                                 for v in vision._variants(band)[:2])
+
+
 def find_search_box(img: np.ndarray) -> Point | None:
     """Centre of the collection screen's search box (a wide grey bar under the grid, left side)."""
     return _search_box(img) if classify(img) == "collection" else None
