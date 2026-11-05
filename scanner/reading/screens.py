@@ -407,14 +407,23 @@ def find_inspect(img: np.ndarray) -> Point | None:
 
 
 def find_buy_cancel(img: np.ndarray) -> Point | None:
-    """Centre of the red X (cancel) of the "Buy this item for" box, or None. Found by its colour, left of the green
-    check, because the box is taller or shorter depending on the item picture (--snipe --dry-run clicks it)."""
+    """Centre of the red X (cancel) of the "Buy this item for" box, or None. Found by its colour in the row of the green
+    check on its right: the box is taller or shorter depending on the item picture, and red tiles of the stall show
+    below the box (seen live: they pulled the point 40 px below the button). --snipe --dry-run clicks it."""
     h, w = img.shape[:2]
-    x0, y0 = int(0.40 * w), int(0.58 * h)
-    r = img[y0:int(0.74 * h), x0:int(0.50 * w)].astype(int)
+    y0, y1 = int(0.58 * h), int(0.74 * h)
+    g = img[y0:y1, int(0.50 * w):int(0.62 * w)].astype(int)
+    gy = np.nonzero(_green(g).sum(1) > 0.2 * g.shape[1])[0]
+    if len(gy) == 0:
+        return None
+    top, bottom = y0 + int(gy.min()), y0 + int(gy.max())  # the check button's rows
+    x0 = int(0.40 * w)
+    r = img[top:bottom + 1, x0:int(0.50 * w)].astype(int)
     red = (r[..., 2] > 120) & (r[..., 2] - r[..., 1] > 70) & (r[..., 2] - r[..., 0] > 70)
     ys, xs = np.nonzero(red)
-    return (x0 + (int(xs.min()) + int(xs.max())) // 2, y0 + (int(ys.min()) + int(ys.max())) // 2) if red.sum() > 0.001 * w * h else None  # box middle: the white X leaves the colour lopsided
+    if red.sum() < 0.001 * w * h:
+        return None
+    return x0 + (int(xs.min()) + int(xs.max())) // 2, top + (int(ys.min()) + int(ys.max())) // 2  # box middle: the white X leaves the colour lopsided
 
 
 def find_teleport_failed_ok(img: np.ndarray) -> Point | None:

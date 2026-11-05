@@ -279,3 +279,9 @@ def test_the_stall_screen_is_still_saved_when_the_search_ends_at_the_bottom(monk
     saved = []
     snipe.after_teleport(1, FAST, "Plastic Toy WA 2000", 10, 10, lambda name, img: saved.append((name, img)))
     assert [img is not None for name, img in saved if name == "snipe_stall"] == [True]  # a real saver cannot write None
+
+
+def test_the_cancel_x_is_found_in_the_row_of_the_check_even_with_red_tiles_below_the_box():
+    img = cv2.imread("sniper_arena_scanner_handoff/snipe_confirm_curse_one_1900.png")  # seen live: the point was 40 px too low
+    x, y = screens.find_buy_cancel(img)
+    assert 805 < x < 917 and 663 < y < 718  # inside the red X button
