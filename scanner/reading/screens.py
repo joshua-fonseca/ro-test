@@ -291,12 +291,13 @@ def find_category_button(img: np.ndarray, category: str) -> Point | None:
 
 def rarity_is_on(img: np.ndarray, rarity: str) -> bool:
     """True if the Secret / Limited filter button is lit (bright magenta; off it is dark purple). It looks at the button
-    face beside and below the label, so it still works when the mouse is over the button and it grows."""
+    face beside the label, left and right. Not below it: an unlit button's bottom lip is almost as bright as a lit
+    face (234, 0, 206), which read as "on" and skipped the click (seen live)."""
     p = layout.fixed(img, f"rarity:{rarity}")
     if p is None:
         return False
     h, w = img.shape[:2]
-    for dx, dy in ((-0.034 * w, 0), (0.034 * w, 0), (0, 0.020 * h)):
+    for dx, dy in ((-0.034 * w, 0), (0.034 * w, 0)):
         x, y = min(max(p[0] + int(dx), 2), w - 3), min(max(p[1] + int(dy), 2), h - 3)
         b, g, r = img[y - 2:y + 3, x - 2:x + 3].reshape(-1, 3).mean(0)
         if r > 200 and b > 200 and g < 90:

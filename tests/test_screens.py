@@ -172,3 +172,9 @@ def test_a_card_whose_art_sticks_out_for_17_rows_is_still_one_card():
     boxes = vision.find_cards(img)
     assert boxes[0][1:4:2] == (301, 470) and vision.is_complete(boxes[0])  # the Nocturne Daisho [Rainbow] card
     assert boxes[1][1] > 480  # the next card stays a separate one
+
+
+def test_an_unlit_rarity_button_is_not_read_as_lit_even_with_a_bright_bottom_lip():
+    for f in ("live_rarity_off_search_1900.png", "live_rarity_off_options_1900.png"):  # seen live: Secret off
+        img = cv2.imread(f"sniper_arena_scanner_handoff/{f}")
+        assert not screens.rarity_is_on(img, "Secret") and not screens.rarity_is_on(img, "Limited")
