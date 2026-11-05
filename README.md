@@ -80,7 +80,7 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 
 ## Run
 
-1. Open the game, log in, join S.Arena, go to the trading market and go to the Search Menu. Don't type anything or change any filters.
+1. Open the game, go to the trading market, join the smallest server, then go to the Search Menu. Don't type anything or change any filters.
 2. In PowerShell, from the `ro-test` folder:
 
 ```powershell
