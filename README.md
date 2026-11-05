@@ -69,6 +69,7 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 - `max_serial` can be empty.
 - Only rows with `enabled=true` and a `max_price` are scanned. A row with the wrong number of columns is skipped (a warning goes to `output/run.log`).
 - `dry_targets.csv` has the same columns and is read instead of `targets.csv` with `--dry-run`, so a rehearsal can use its own skins.
+  - Test the items you want to snipe first: put them in `dry_targets.csv` with a high `max_price`, so a listing matches and a `--dry-run` goes through every step.
 
 ## Run
 
