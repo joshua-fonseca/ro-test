@@ -1,0 +1,1 @@
+backend=tesseract ocr_calls=125 ocr_seconds=16.1 mean_ms=129
