@@ -402,18 +402,23 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         log.info("timing: search and open the results took %.2f s", time.perf_counter() - t_start)
     t_open = time.perf_counter()
     try:
-        if navigated and screens.classify(opened) == "empty":  # no seller has it: nothing to read (not a failure)
-            print("No listings found; nothing to scan")
-            store.log_scan(now, target, "no_listings")
-            return 0, navigated
         frames_dir = Path(cfg.output_dir) / "scan_frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
         for old in frames_dir.glob("*.png"):  # only the latest run's frames are kept
             old.unlink()
         next_frame = _live_frames(hwnd, frames_dir)
         img = next_frame(0)
-        for _ in range(30):  # a long list takes a moment to draw its first cards after it opens
+        # A long list takes a moment to draw its first cards after it opens; "No listings found" can show a moment after
+        # the box itself (seen live). 3 s, not a count of looks: each look saves a frame and took up to 0.4 s.
+        end = time.time() + 3
+        while True:
             if img is None or any(vision.is_complete(b) for b in vision.find_cards(img)):
+                break
+            if screens.classify(img) == "empty":  # no seller has it: nothing to read (not a failure)
+                print("No listings found; nothing to scan")
+                store.log_scan(now, target, "no_listings")
+                return 0, navigated
+            if time.time() > end:
                 break
             time.sleep(0.1)
             img = next_frame(0)

@@ -253,6 +253,9 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         back = back_to_collection(hwnd)
         return None, f"Search Options was not for {skin!r}" + ("" if back else " (and could not get back to the grid)")
     if results is None:
+        raw = screen.capture(hwnd)  # diagnostics: what was on screen instead
+        if raw is not None:
+            save("results_timeout", raw)
         return None, "results list did not open after the green check"
     save("results", results)
     return results, ""

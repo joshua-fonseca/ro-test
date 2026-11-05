@@ -467,7 +467,13 @@ def test_a_skin_nobody_sells_is_skipped_at_once_and_is_not_a_failure(monkeypatch
     empty = cv2.imread("sniper_arena_scanner_handoff/live_no_listings.png")  # before _fake_game changes the folder
     clicks = _fake_game(monkeypatch, tmp_path)
     import scanner.windows as w
-    monkeypatch.setattr(w.navigate, "open_results", lambda *a, **k: (empty, ""))
+    import types
+    loading = np.zeros_like(empty)  # the box opened first, its message came a moment later (seen live)
+    monkeypatch.setattr(w.navigate, "open_results", lambda *a, **k: (loading, ""))
+    frames = iter([loading, empty])
+    _fake(monkeypatch, "screen", types.SimpleNamespace(
+        find_roblox=lambda prefer=None: 1, is_focused=lambda h: True, capture=lambda h: next(frames, empty),
+        client_rect=lambda h: (0, 0, 1890, 1068)))
     assert scan_once.main(["Starveil AWP", "--navigate"]) == 0
     assert "No listings found" in capsys.readouterr().out
     assert _log_statuses(tmp_path) == ["no_listings"] and clicks == ["close"]  # the box is closed, nothing scrolled
