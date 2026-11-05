@@ -32,6 +32,11 @@ class NotTeleported(Stopped):
     """No loading screen after the Teleport click: the click did nothing, and the results list is still up."""
 
 
+class SellerLeft(Exception):
+    """The seller had left the server, so the Teleport landed at the map centre: no stall to buy from. The flow walked
+    back to the Search terminal and opened the search menu again; the scan can go on."""
+
+
 class TeleportFailed(Stopped):
     """Roblox said "Teleport Failed" (server full); its Ok was clicked, so the results list shows again."""
 
@@ -194,7 +199,18 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _hold(hwnd, E, cfg.hold_e_seconds)
     exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: screens.snipe_button(im, "stall_exit"))
     if exit_point is None:
-        raise Stopped("the seller's stall did not open", img)
+        # Most likely the seller left the server: the Teleport put us at the map centre. S for 1.75 s reaches the Search
+        # terminal ("E Open"), and holding E opens the search menu. Anything else is a stop.
+        _shot("seller_not_at_stall", img)
+        _hold(hwnd, S, cfg.back_to_search_seconds)
+        prompt, img = _wait(hwnd, cfg.snipe_step_timeout, screens.find_open_prompt)
+        if prompt is None:  # E would open nothing known: send nothing more
+            raise Stopped("the seller's stall did not open, and no 'E Open' prompt showed after walking back", img)
+        _hold(hwnd, E, cfg.hold_e_seconds)
+        menu, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: (0, 0) if screens.classify(im) == "collection" else None)
+        if menu is None:
+            raise Stopped("the seller's stall did not open, and the search menu did not open after walking back", img)
+        raise SellerLeft("the seller left the server")
     log.info("timing: stall open %.1f s after the world showed (wait, walk and hold E included)", time.time() - t_world)
     # the stall's X shows before its items and prices have loaded: keep looking a while before calling the item gone
     buy, img, seen = _look_in_stall(hwnd, skin, low, high, cfg.stall_load_seconds)

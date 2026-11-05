@@ -143,6 +143,20 @@ def button_colour(a: np.ndarray, red: bool = False) -> np.ndarray:
     return (a[..., 1] > 140) & (a[..., 2] < 120) & (a[..., 0] < 120)
 
 
+def find_open_prompt(img: np.ndarray) -> Point | None:
+    """Centre of the in-game "E Open" prompt (a dark rounded box with a grey key circle and the word Open), or None.
+    Roblox draws it near whatever E would open: the stall booth, the Search terminal. Colour and shape only."""
+    h, w = img.shape[:2]
+    dark = cv2.morphologyEx((img.max(2) < 60).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
+    for s, _ in _components(dark, int(0.003 * w * h)):
+        x, y, bw, bh = (int(v) for v in s[:4])
+        if 0.04 * w <= bw <= 0.18 * w and 1.4 <= bw / bh <= 2.6:
+            box = img[y:y + bh, x:x + bw].astype(int)
+            if (np.abs(box - (97, 92, 91)).max(2) <= 18).mean() >= 0.10:  # the grey circle round the E key
+                return x + bw // 2, y + bh // 2
+    return None
+
+
 def find_check_button(img: np.ndarray) -> Point | None:
     """Green check in Search Options: the button that shows the results. None on any other screen."""
     if classify(img) != "options":

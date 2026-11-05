@@ -320,6 +320,7 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
     return next_frame
 
 
+SELLER_LEFT = 11  # _snipe's result when the seller had left: back at the search menu, the scan goes on
 TELEPORTED = 10  # _run_once's exit code once --snipe clicked Teleport (and ran the steps after it): the caller stops
 
 
@@ -342,10 +343,11 @@ def _teleport(hwnd: int, shown: np.ndarray, card) -> tuple[bool, str]:
     return True, ""
 
 
-def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) -> bool:
+def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) -> int:
     """--snipe on a match: Teleport, then snipe.after_teleport. A full server ("Teleport Failed", Ok clicked) is tried
-    again on the same listing, up to cfg.teleport_retries more times, while the list still shows it. True once it
-    teleported (the loop stops); False to close the results and go on with the next skin."""
+    again on the same listing, up to cfg.teleport_retries more times, while the list still shows it. TELEPORTED once it
+    teleported (the loop stops); SELLER_LEFT if the seller was gone and the search menu was opened again (the scan goes
+    on, with a fresh search); 0 to close the results and go on with the next skin."""
     from scanner.windows import snipe as flow
     probe = out / "probe"
     probe.mkdir(parents=True, exist_ok=True)
@@ -359,14 +361,17 @@ def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) 
         log.info("timing: checking and clicking Teleport took %.2f s", time.perf_counter() - t)
         print("Teleport clicked." if teleported else f"Teleport not clicked: {why}. Going on with the next skin.")
         if not teleported:
-            return False
+            return 0
         try:
             print(flow.after_teleport(hwnd, cfg, target.skin_name, listing.price,
                                       price_high(listing.price, listing.price_approx),
                                       lambda name, im: cv2.imwrite(str(probe / f"{name}.png"), im)))
         except flow.NotTeleported as e:  # still on this server with the list up: same as Teleport not clicked
             print(f"{e}. Going on with the next skin.")
-            return False
+            return 0
+        except flow.SellerLeft as e:
+            print(f"{e}; walked back and opened the search menu. Nothing bought. Going on.")
+            return SELLER_LEFT
         except flow.TeleportFailed as e:  # Ok was clicked: the results list shows again
             print(f"Teleport failed: {e}. Clicked Ok; "
                   + ("going on with the next skin." if attempt == cfg.teleport_retries else "trying the same listing again."))
@@ -379,8 +384,8 @@ def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) 
         except Exception:  # Teleport went through: whatever broke, never go back to scanning on the new server
             log.exception("the snipe flow crashed after Teleport")
             print("Snipe stopped: the flow crashed after Teleport (see run.log). Nothing more was sent; take over from here.")
-        return True
-    return False
+        return TELEPORTED
+    return 0
 
 
 def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: bool,
@@ -468,9 +473,12 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         log.info("timing: reading the list took %.2f s (%d frames); results opened %.2f s ago",
                  time.perf_counter() - t_scan, r["frames"], time.perf_counter() - t_open)
         if r.get("match"):  # only set when scan_list ran with snipe
-            teleported = _snipe(hwnd, cfg, out, target, *r["match"])
-            if teleported:
+            result = _snipe(hwnd, cfg, out, target, *r["match"])
+            teleported = bool(result)  # on a new server: the results list is not there to close
+            if result == TELEPORTED:
                 return TELEPORTED, navigated
+            if result == SELLER_LEFT:
+                return 0, False  # the search menu is fresh: the next scan searches again from scratch
         return (0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1), navigated
     except BaseException as e:  # a cut-short run still leaves a row in scan_log.csv
         store.log_scan(now, target, "interrupted" if isinstance(e, KeyboardInterrupt) else "error", detail=repr(e))

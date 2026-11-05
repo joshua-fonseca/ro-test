@@ -77,7 +77,7 @@ def test_each_snipe_button_shows_only_on_its_own_screen():
 
 
 def test_a_stop_keeps_the_screen_it_gave_up_on(monkeypatch):
-    _, run = _flow(monkeypatch, [6, 6], "Nya Reaper", 15)  # still in the world: no stall
+    _, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)  # still in the world: no stall, and no "E Open" prompt after walking back
     with pytest.raises(snipe.Stopped) as e:
         run()
     assert e.value.img is not None and "stall did not open" in str(e.value)
@@ -87,7 +87,7 @@ def test_the_flow_waits_for_the_loading_screen_to_come_and_go(monkeypatch):
     import numpy as np
     black = np.zeros((743, 1322, 3), np.uint8)
     results = cv2.imread("sniper_arena_scanner_handoff/live_nya_reaper.png")  # the old list, before the teleport starts
-    frames = iter([results, results, black, None, shot(6), shot(6)])  # None: Roblox not in front for a moment
+    frames = iter([results, results, black, None, shot(6), shot(6), shot(6)])  # None: Roblox not in front for a moment
     held = []
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: next(frames), raising=False)
     monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
@@ -285,3 +285,28 @@ def test_the_cancel_x_is_found_in_the_row_of_the_check_even_with_red_tiles_below
     img = cv2.imread("sniper_arena_scanner_handoff/snipe_confirm_curse_one_1900.png")  # seen live: the point was 40 px too low
     x, y = screens.find_buy_cancel(img)
     assert 805 < x < 917 and 663 < y < 718  # inside the red X button
+
+
+def test_a_seller_who_left_means_walking_back_and_opening_the_search_menu(monkeypatch):
+    collection = cv2.imread("sniper_arena_scanner_handoff/live_collection.png")
+    prompt = cv2.imread("sniper_arena_scanner_handoff/live_open_prompt_1691.png")
+    done, run = _flow(monkeypatch, [6, 6, prompt, collection], "Nya Reaper", 15)  # the map centre: no stall; the prompt; the menu
+    with pytest.raises(snipe.SellerLeft):
+        run()
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "S", "E"]  # then S for 1.75 s and E to open the menu
+    assert not [d for d in done if d[0] == "click"]
+
+
+def test_no_open_prompt_after_walking_back_means_no_e_is_held(monkeypatch):
+    done, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)
+    with pytest.raises(snipe.Stopped, match="no 'E Open' prompt"):
+        run()
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "S"]  # the second E was never sent
+
+
+def test_the_open_prompt_is_found_on_its_screen_and_not_on_others():
+    prompt = cv2.imread("sniper_arena_scanner_handoff/live_open_prompt_1691.png")
+    x, y = screens.find_open_prompt(prompt)
+    assert abs(x - 657) < 15 and abs(y - 649) < 15
+    for name in ("live_map_centre_no_prompt_1693", "live_collection", "live_options_1700", "live_no_listings_dark_1700"):
+        assert screens.find_open_prompt(cv2.imread(f"sniper_arena_scanner_handoff/{name}.png")) is None

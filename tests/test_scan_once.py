@@ -450,12 +450,12 @@ def test_a_full_server_is_tried_again_on_the_same_listing_then_the_next_skin(mon
     monkeypatch.setattr(flow, "after_teleport", full)
     listing = types.SimpleNamespace(price=100, price_approx=False)
     target = Target("Nya Reaper", "Knife", "Secret", 999, 2, True)
-    assert not scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing)
+    assert scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing) == 0
     assert len(tries) == 2  # tried twice; on the third look the listing was gone: next skin
     still_listed = iter([True] * 9)
     monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card: (next(still_listed), ""))
     tries.clear()
-    assert not scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing)
+    assert scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing) == 0
     assert len(tries) == 4  # the first try and 3 retries, then next skin
 
 
@@ -512,3 +512,16 @@ def test_a_list_that_closes_while_the_hidden_first_card_is_waited_out_stops_the_
     target = Target("Starveil AWP", "Sniper", "Limited", 100_000, None, True)
     r = scan_list(covered, lambda n: calls.append(n) or np.zeros_like(covered), target, store, tmp_path, NOW, at_top=True)
     assert r["status"] == "list_lost" and calls == [0]  # one look, then nothing is scrolled
+
+
+def test_a_seller_who_left_sends_the_scan_on_with_a_fresh_search(monkeypatch, tmp_path):
+    from scanner.logic.config import Config
+    from scanner.windows import snipe as flow
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card: (True, ""))
+
+    def gone(*a):
+        raise flow.SellerLeft("the seller left the server")
+    monkeypatch.setattr(flow, "after_teleport", gone)
+    listing = types.SimpleNamespace(price=100, price_approx=False)
+    target = Target("Nya Reaper", "Knife", "Secret", 999, 2, True)
+    assert scan_once._snipe(1, Config(), tmp_path, target, None, None, listing) == scan_once.SELLER_LEFT
