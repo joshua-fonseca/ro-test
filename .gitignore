@@ -227,3 +227,6 @@ sniper_arena_scanner_handoff/
 # scanner output: screenshots and CSVs with other players' names
 output/
 graphify-out/
+
+# your own skin list: stays on this machine
+targets.csv
