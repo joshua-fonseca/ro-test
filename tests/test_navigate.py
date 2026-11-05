@@ -259,3 +259,17 @@ def test_filters_on_still_checks_the_rarity_and_clicks_it_if_the_game_reset_it(m
     monkeypatch.setattr(navigate.controller, "click", lambda h, x, y: lit.__setitem__(0, True) or real_click(h, x, y))
     assert navigate.search_for(1, "Nya Reaper", category="Knife", rarity="Limited", filters_on=True) == (True, "")
     assert len(w.clicks) == 2  # the Limited button (it was off), then the search box; no category click
+
+
+def test_a_paste_that_did_not_land_is_clicked_and_pasted_once_more(monkeypatch):
+    w = World(monkeypatch)
+    calls = []
+
+    def paste(hwnd, text):  # the first paste hits an unfocused box and does nothing
+        calls.append(text)
+        w.box_text = len(calls) > 1
+        return True
+    monkeypatch.setattr(navigate.controller, "paste_text", paste)
+    assert navigate.search_for(1, "Nya Reaper") == (True, "")
+    assert calls == ["Nya Reaper"] * 2 and w.typed == []
+    assert w.clicks.count(w.clicks[-1]) == 2  # the search box (the last click) was clicked a second time

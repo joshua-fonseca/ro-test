@@ -64,6 +64,19 @@ def _click(hwnd: int, point, img, hover: float = 0) -> bool:
     return controller.click(hwnd, x, y, hover) if hover else controller.click(hwnd, x, y)
 
 
+def _text_shows(hwnd: int):
+    """(True, img) once the search box shows text, (False, img) if it still does not after about 1 s, (None, None) if
+    focus was lost."""
+    for _ in range(20):  # the pasted text shows within a few frames
+        img = screen.capture(hwnd)
+        if img is None:
+            return None, None
+        if screens.search_has_text(img):
+            return True, img
+        time.sleep(0.05)
+    return False, img
+
+
 def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: str | None = None,
                rarity: str | None = None, filters_on: bool = False) -> tuple[bool, str]:
     """Pick the skin's category (Sniper, Knife...) and rarity (Secret / Limited: names like 'Starry Flip Knife' also
@@ -143,15 +156,19 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         return False, "could not clear the search box"
     before = img  # the grid as it was when the box was empty; it changes once the filter applies
     if controller.paste_text(hwnd, skin):  # the whole name at once
-        for _ in range(20):  # the pasted text shows within a few frames
-            img = screen.capture(hwnd)
-            if img is None:
+        shown, img = _text_shows(hwnd)
+        if shown is None:
+            return False, "Roblox lost focus"
+        if not shown:  # the box was probably not focused yet (seen live: the grid redraws after the Secret filter click)
+            save("paste_not_shown", img)  # the box is still empty, so clicking it and pasting once more cannot double the name
+            if not _click(hwnd, point, img) or not controller.paste_text(hwnd, skin):
+                return False, "the pasted name did not show in the search box"
+            shown, img = _text_shows(hwnd)
+            if shown is None:
                 return False, "Roblox lost focus"
-            if screens.search_has_text(img):
-                break
-            time.sleep(0.05)
-        else:  # typing now could double the name if the paste lands late
-            return False, "the pasted name did not show in the search box"
+            if not shown:  # typing now could double the name if the paste lands late
+                save("paste_not_shown_twice", img)
+                return False, "the pasted name did not show in the search box"
     else:  # nothing was pasted (clipboard busy): type it key by key, but only once the box shows its cursor, or the
         # letters would reach the game as key presses (a paste with no focused box does nothing, so it needs no check)
         for _ in range(16):  # the cursor blinks: look for it over about 2 s
