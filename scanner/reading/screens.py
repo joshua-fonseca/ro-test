@@ -132,13 +132,20 @@ def find_search_box(img: np.ndarray) -> Point | None:
     return _search_box(img) if classify(img) == "collection" else None
 
 
+def button_colour(a: np.ndarray, red: bool = False) -> np.ndarray:
+    """Mask of the saturated green (check) or red (X) of the Search Options buttons, in a BGR array."""
+    a = a.astype(int)
+    if red:
+        return (a[..., 2] > 150) & (a[..., 1] < 60) & (a[..., 0] < 60)
+    return (a[..., 1] > 140) & (a[..., 2] < 120) & (a[..., 0] < 120)
+
+
 def find_check_button(img: np.ndarray) -> Point | None:
     """Green check in Search Options: the button that shows the results. None on any other screen."""
     if classify(img) != "options":
         return None
     x, y, w, h = modal_box(img)
-    box = img[y:y + h, x:x + w].astype(int)
-    green = (box[..., 1] > 140) & (box[..., 2] < 120) & (box[..., 0] < 120)
+    green = button_colour(img[y:y + h, x:x + w])
     found = [(s, c) for s, c in _components(green, int(0.001 * w * h)) if s[2] > s[3]]  # a wide button, not a thin line
     if len(found) != 1:  # exactly one green button exists here; anything else is not the screen we think
         return None
@@ -150,8 +157,7 @@ def find_options_cancel(img: np.ndarray) -> Point | None:
     if classify(img) != "options":
         return None
     x, y, w, h = modal_box(img)
-    box = img[y:y + h, x:x + w].astype(int)
-    red = (box[..., 2] > 150) & (box[..., 1] < 60) & (box[..., 0] < 60)
+    red = button_colour(img[y:y + h, x:x + w], red=True)
     found = [(s, c) for s, c in _components(red, int(0.0005 * w * h)) if s[2] > s[3] and s[1] > 0.7 * h]
     if len(found) != 1:
         return None

@@ -1,9 +1,10 @@
 import types
 
+import cv2
 import numpy as np
 import pytest
 
-from scanner.reading import layout
+from scanner.reading import layout, screens
 from scanner.windows import navigate
 
 
@@ -149,7 +150,7 @@ def test_unknown_category_stops_before_any_click(monkeypatch):
 
 
 
-def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
+def test_a_16_9_window_asks_the_finder_for_the_check_when_no_green_button_is_at_the_fixed_spot(monkeypatch):
     w = World(monkeypatch, size=(1900, 1069))
     asked = []
     monkeypatch.setattr(navigate.screens, "find_first_tile", lambda img: asked.append(1) or (614, 274))
@@ -165,7 +166,7 @@ def test_a_16_9_window_clicks_fixed_points_once_the_finder_agreed(monkeypatch):
     first = w.clicks[:]
     w.state = "collection"
     assert navigate.open_results(1, "Nya Reaper")[0] is not None
-    assert asked == [2]  # the check button's finder was only asked the first time; the first tile never needs one
+    assert asked == [2, 2]  # this fake screen has no green at the fixed spot, so the finder is asked each time; the first tile never needs one
     assert w.clicks[2:] == first and first[0] == (10 + 614, 20 + 274) and first[1] == (10 + 1036, 20 + 725)
 
 
@@ -318,3 +319,15 @@ def test_a_remembered_tile_that_is_gone_is_forgotten_and_the_first_tile_is_tried
     monkeypatch.setattr(navigate, "_has_tile", lambda img, point: point[0] < 150)  # now only the first tile is listed
     img, why = navigate.open_results(1, "Nya Machete")
     assert img is not None and w.clicks[0] == (110, 220) and navigate._slot == {"Nya Machete": 0}
+
+
+def test_buttons_in_a_taller_search_options_are_found_not_taken_from_the_fixed_spot():
+    for name, fixed_ok in (("live_options_crossbow", True), ("live_options_nya_pink", False)):  # the second has the StatTrak row
+        img = cv2.imread(f"sniper_arena_scanner_handoff/{name}.png")
+        assert img is not None
+        check = navigate._button_point(img, "check", lambda: screens.find_check_button(img))
+        cancel = navigate._button_point(img, "options_cancel", lambda: screens.find_options_cancel(img), red=True)
+        assert (check == layout.fixed(img, "check")) is fixed_ok
+        assert (cancel == layout.fixed(img, "options_cancel")) is fixed_ok
+        assert check == screens.find_check_button(img) or fixed_ok
+        assert cancel == screens.find_options_cancel(img) or fixed_ok

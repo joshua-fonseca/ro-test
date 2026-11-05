@@ -219,6 +219,21 @@ def _slot_point(first, k: int, img):
     return first[0] + round(k % 6 * 0.0916 * w), first[1] + round(k // 6 * 0.1616 * h)
 
 
+def _button_point(img, name, finder, red=False):
+    """The fixed point for a Search Options button if it really sits on the button, else the finder's point. The modal
+    is taller for some skins (a StatTrak row), which moves the buttons down: a fixed point then lands just under them.
+    The centre carries a white check or X, so the colour is sampled to its left and right."""
+    p = layout.fixed(img, name)
+    if p is not None:
+        d = round(0.015 * img.shape[1])
+        for dx in (-d, d):
+            a = img[max(p[1] - 3, 0):p[1] + 4, max(p[0] + dx - 3, 0):p[0] + dx + 4]
+            if not a.size or screens.button_colour(a, red).mean() < 0.5:  # off the screen counts as not on the button
+                return finder()
+        return p
+    return finder()
+
+
 def _has_tile(img, point) -> bool:
     """True if a red skin tile (not the bare grey panel, which has almost no red) is around `point`; a pale picture
     under a rainbow frame still leaves the red fill."""
@@ -273,7 +288,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         if img is None:
             return None, "Search Options did not open after clicking the tile"
         save("options", img)
-        check = layout.point(img, "check", lambda: screens.find_check_button(img))
+        check = _button_point(img, "check", lambda: screens.find_check_button(img))
         if check is None:
             return None, "no green check found in Search Options"
         if not _click(hwnd, check, img):
@@ -315,7 +330,7 @@ def back_to_collection(hwnd: int) -> bool:
     if state == "collection":
         return True
     if state == "options":
-        point = layout.point(img, "options_cancel", lambda: screens.find_options_cancel(img))
+        point = _button_point(img, "options_cancel", lambda: screens.find_options_cancel(img), red=True)
     elif state in ("results", "empty"):
         point = _close_point(img)
     else:
