@@ -130,8 +130,17 @@ def _scroll_stall(hwnd: int, cfg, img):
     x0, y0, w, h = screen.client_rect(hwnd)
     if not controller.scroll(hwnd, x0 + w // 2, y0 + h // 2, cfg.stall_scroll_notches):
         raise Stopped("Roblox lost focus while scrolling the stall", img)
-    new = img
-    for _ in range(12):
+    for wait in (0.3, 0.6):  # a slow start must not read as "the end": look again before giving up
+        time.sleep(wait)
+        cur = screen.capture(hwnd)
+        if cur is None:
+            raise Stopped(f"Roblox lost focus ({screen.foreground_title()!r} was in front)")
+        if navigate._grid_change(cur, img) >= 1.0:
+            break
+    else:
+        return None
+    new = cur
+    for _ in range(12):  # it is gliding: wait until two looks are alike
         time.sleep(0.15)
         cur = screen.capture(hwnd)
         if cur is None:
@@ -140,7 +149,7 @@ def _scroll_stall(hwnd: int, cfg, img):
         new = cur
         if done:
             break
-    return None if navigate._grid_change(new, img) < 1.0 else new
+    return new
 
 
 def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda name, img: None) -> str:
@@ -185,10 +194,10 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     for _ in range(cfg.stall_max_scrolls):  # the item may be further down: a stall lists dearest first
         if buy is not None or (seen and max(seen) < low):
             break  # found, or everything in view is cheaper than the item (shortcut: assumes the stall is sorted high to low, as seen on 3 stalls)
-        img = _scroll_stall(hwnd, cfg, img)
-        if img is None:
-            break  # the list did not move: that was the end
-        buy, img, seen = _look_in_stall(hwnd, skin, low, high, 1)
+        moved = _scroll_stall(hwnd, cfg, img)
+        if moved is None:
+            break  # the list did not move: that was the end (img stays the last real screen, for the diagnostics)
+        buy, img, seen = _look_in_stall(hwnd, skin, low, high, 2)
     save("snipe_stall", img)  # diagnostics: the stall as it was read
     dry = False
     if buy is not None:
