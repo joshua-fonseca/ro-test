@@ -227,7 +227,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
                 _press(hwnd, cfg, "robux_box_x", screens.find_robux_prompt_close)
     _press(hwnd, cfg, "stall_exit")
     for name in ("inventory", "inventory_all", "inspect", "sell_on_market", "claim_check"):
-        _press(hwnd, cfg, name)
+        _press(hwnd, cfg, name, screens.find_inspect if name == "inspect" else None)  # Inspect moves with the item shown
     _hold(hwnd, E, cfg.hold_e_seconds)
     _press(hwnd, cfg, "same_items_check")
     done = ("Not enough cash (closed Roblox's Buy Robux box); nothing bought" if _steps["short"] else

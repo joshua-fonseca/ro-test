@@ -381,6 +381,23 @@ def snipe_button(img: np.ndarray, name: str) -> Point | None:
     return (x, y) if share.mean() > 0.25 else None
 
 
+def find_inspect(img: np.ndarray) -> Point | None:
+    """Centre of the blue Inspect button in the item panel on the left of the Inventory screen, or None. Its height
+    changes with the item (an Equipped / Equip / Locked row sits above it), so a fixed point misses it: seen live, a
+    fixed y landed in the gap under the button. Found by its colour (dark to bright blue, no red, blue over green),
+    which the teal item picture next to it does not have."""
+    h, w = img.shape[:2]
+    x0, y0 = int(0.19 * w), int(0.40 * h)
+    r = img[y0:int(0.75 * h), x0:int(0.36 * w)].astype(int)
+    blue = ((r[..., 2] < 40) & (r[..., 0] > 80) & (r[..., 0] - r[..., 1] > 20)).astype(np.uint8)
+    blue = cv2.morphologyEx(blue, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    buttons = [(s, c) for s, c in _components(blue, int(0.006 * w * h)) if s[2] > 2 * s[3]]
+    if not buttons:
+        return None
+    s, _ = max(buttons, key=lambda b: b[0][4])
+    return x0 + int(s[0]) + int(s[2]) // 2, y0 + int(s[1]) + int(s[3]) // 2
+
+
 def find_buy_cancel(img: np.ndarray) -> Point | None:
     """Centre of the red X (cancel) of the "Buy this item for" box, or None. Found by its colour, left of the green
     check, because the box is taller or shorter depending on the item picture (--snipe --dry-run clicks it)."""

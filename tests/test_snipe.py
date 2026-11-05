@@ -252,3 +252,12 @@ def test_the_scrolling_stops_once_everything_in_view_is_cheaper_than_the_item(mo
     done, run = _scrolling(monkeypatch, [6, 8, s2, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 2000)
     assert run().startswith("The item was gone")
     assert [d for d in done if d[0] == "scroll"] == []  # a stall lists dearest first: it would be above, already passed
+
+
+def test_inspect_is_found_by_colour_whatever_the_row_above_it(monkeypatch):
+    equipped = cv2.imread("sniper_arena_scanner_handoff/snipe_inspect_equipped_1900.png")  # seen live: an Equipped row above
+    x, y = screens.find_inspect(equipped)
+    assert abs(x - 510) < 15 and abs(y - 613) < 15  # the middle of the button (the fixed point was 657: its gap)
+    plain = shot(11)  # an item with the Equip button above it: the button sits elsewhere, the finder follows
+    assert screens.find_inspect(plain) == (353, 456)
+    assert screens.find_inspect(shot(8)) is None  # not an inventory screen
