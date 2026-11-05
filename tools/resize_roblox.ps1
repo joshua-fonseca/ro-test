@@ -8,7 +8,10 @@ Give a width, a height, both, or neither:
   .\resize_roblox.ps1 -Height 1062             # width worked out from the aspect ratio (1888)
   .\resize_roblox.ps1 -Width 1600 -Height 900  # exact size
   .\resize_roblox.ps1 -Width 1280 -Aspect 1.6  # another ratio (16:10)
-Run from Windows PowerShell with Roblox open and windowed (not F11 fullscreen).
+Run from Windows PowerShell with Roblox open and windowed (not F11 fullscreen). From the Windows copy of the
+project, C:\Users\joshu\ro-test (main.py --width/--height runs this script for you):
+  cd $env:USERPROFILE\ro-test
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\resize_roblox.ps1 -Width 1900
 
 From WSL, in the repo folder (same arguments):
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/resize_roblox.ps1)" -Width 1600

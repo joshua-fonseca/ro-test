@@ -318,11 +318,12 @@ def find_teleport(img: np.ndarray, card: tuple[int, int, int, int]) -> Point | N
     return (l + int(0.885 * w), t + int(0.78 * h)) if _green(band).mean() > 0.25 else None
 
 
-def find_stall_buy(img: np.ndarray, name: str, low: int, high: int) -> Point | None:
+def find_stall_buy(img: np.ndarray, name: str, low: int, high: int, seen: list | None = None) -> Point | None:
     """`--snipe`, inside a seller's stall: centre of the green cash button under the tile `name` whose button shows
     a price from `low` to `high` (the same number unless the list showed a shortened '11.7k'); None if the stall no
     longer has it. Prices are read first (all at once, digits only), and only a
-    tile over a button with the right price has its name read."""
+    tile over a button with the right price has its name read. `seen`, if given, gets every price read on this
+    screen (the caller scrolls on while the stall still shows prices at or above `low`)."""
     h, w = img.shape[:2]
     x0, y0 = int(0.15 * w), int(0.15 * h)
     mask = cv2.morphologyEx(_green(img[y0:int(0.85 * h), x0:int(0.86 * w)]).astype(np.uint8), cv2.MORPH_CLOSE,
@@ -338,6 +339,8 @@ def find_stall_buy(img: np.ndarray, name: str, low: int, high: int) -> Point | N
         return at != -1 and at <= 2 and len(read) - at - len(want) <= 2
 
     prices = vision._ocr_all([_white(img[y:y + bh, x:x + int(0.62 * bw)]) for x, y, bw, bh in buttons], "0123456789,")
+    if seen is not None:
+        seen.extend(int(t.replace(",", "")) for t in prices if t.replace(",", "").isdigit())
     for (x, y, bw, bh), text in zip(buttons, prices):
         digits = text.replace(",", "")
         if not digits.isdigit() or not low <= int(digits) <= high:

@@ -19,7 +19,11 @@ Flags:
     --width N         first resize the Roblox window so its game area is N px wide (height follows at 16:9);
     --height N        or N px high (width follows). Both = that exact size. Runs tools/resize_roblox.ps1.
 
-Run it on Windows (it captures the screen and sends input), with Roblox open on the collection screen:
+Run it on Windows (it captures the screen and sends input), with Roblox open on the collection screen.
+From the Windows copy of the project, C:\Users\joshu\ro-test (no WSL needed; `git pull` there first to get updates):
+    cd $env:USERPROFILE\ro-test
+    & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe main.py --snipe --dry-run --width 1900
+From the WSL copy:
     Windows PowerShell:  & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe \\wsl.localhost\Ubuntu\home\kkura\repos\ro-test\main.py --cycles 1
     From WSL:            powershell.exe -c '& $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe \\wsl.localhost\Ubuntu\home\kkura\repos\ro-test\main.py'
 Stop with Ctrl+C in the window it runs in. (From WSL, Ctrl+C may leave the Windows process running: use the first form.)

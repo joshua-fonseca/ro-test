@@ -17,6 +17,8 @@ class Config:
     teleport_retries: int = 3  # "Teleport Failed" (server full): click Teleport on the same listing this many more times
     walk_seconds: float = 0.5  # hold W, then S, to stand where the stall's "E Open" prompt shows
     hold_e_seconds: float = 1  # hold E to open a stall
+    stall_max_scrolls: int = 20  # how many times to scroll down a stall looking for the item (about 3 rows each)
+    stall_scroll_notches: int = 3  # per scroll: 375 px, less than the 2+ rows in view, so no row is skipped
     stall_load_seconds: float = 5  # how long to keep looking for the item in a stall before calling it gone
     snipe_step_timeout: float = 8  # how long each button may take to show before the flow stops
     dry_run: bool = False  # set by `main.py --snipe --dry-run`: every step but the buy check; the box is cancelled

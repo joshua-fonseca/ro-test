@@ -110,6 +110,39 @@ def _mostly_black(img) -> bool:
     return (img.max(2) < 30).mean() > 0.9  # the loading screen between servers
 
 
+def _look_in_stall(hwnd: int, skin: str, low: int, high: int, seconds: float):
+    """(cash button of the item or None, last screen, prices read). Waits up to `seconds` while no price shows yet
+    (still loading) or a price in range shows but the name does not read yet."""
+    seen = []
+
+    def look(im):
+        seen.clear()
+        point = screens.find_stall_buy(im, skin, low, high, seen)
+        if point is not None:
+            return point
+        return "loaded" if seen and not any(low <= p <= high for p in seen) else None
+    found, img = _wait(hwnd, seconds, look)
+    return (found if isinstance(found, tuple) else None), img, list(seen)
+
+
+def _scroll_stall(hwnd: int, cfg, img):
+    """Scroll the stall's list down and return the screen once it stopped gliding; None if nothing moved (the end)."""
+    x0, y0, w, h = screen.client_rect(hwnd)
+    if not controller.scroll(hwnd, x0 + w // 2, y0 + h // 2, cfg.stall_scroll_notches):
+        raise Stopped("Roblox lost focus while scrolling the stall", img)
+    new = img
+    for _ in range(12):
+        time.sleep(0.15)
+        cur = screen.capture(hwnd)
+        if cur is None:
+            raise Stopped(f"Roblox lost focus ({screen.foreground_title()!r} was in front)")
+        done = navigate._grid_change(cur, new) < 1.0
+        new = cur
+        if done:
+            break
+    return None if navigate._grid_change(new, img) < 1.0 else new
+
+
 def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda name, img: None) -> str:
     """Run the whole flow; returns what happened. Raises Stopped (nothing more sent) when a step fails.
     save(name, img) keeps the screen before every click and key hold (snipe_01_... in order)."""
@@ -148,7 +181,14 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     if exit_point is None:
         raise Stopped("the seller's stall did not open", img)
     # the stall's X shows before its items and prices have loaded: keep looking a while before calling the item gone
-    buy, img = _wait(hwnd, cfg.stall_load_seconds, lambda im: screens.find_stall_buy(im, skin, low, high))
+    buy, img, seen = _look_in_stall(hwnd, skin, low, high, cfg.stall_load_seconds)
+    for _ in range(cfg.stall_max_scrolls):  # the item may be further down: a stall lists dearest first
+        if buy is not None or (seen and max(seen) < low):
+            break  # found, or everything in view is cheaper than the item (shortcut: assumes the stall is sorted high to low, as seen on 3 stalls)
+        img = _scroll_stall(hwnd, cfg, img)
+        if img is None:
+            break  # the list did not move: that was the end
+        buy, img, seen = _look_in_stall(hwnd, skin, low, high, 1)
     save("snipe_stall", img)  # diagnostics: the stall as it was read
     dry = False
     if buy is not None:

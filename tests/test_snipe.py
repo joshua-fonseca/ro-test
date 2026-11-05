@@ -26,6 +26,8 @@ def _flow(monkeypatch, screens_in_order, skin, price):
     monkeypatch.setattr(snipe.screen, "foreground_title", lambda: "x", raising=False)
     monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: done.append(("click", p)) or True)
     monkeypatch.setattr(snipe.controller, "hold_key", lambda hwnd, key, s: done.append(("hold", chr(key))) or True)
+    monkeypatch.setattr(snipe.screen, "client_rect", lambda hwnd: (0, 0, 1322, 743), raising=False)
+    monkeypatch.setattr(snipe.controller, "scroll", lambda hwnd, x, y, n: done.append(("scroll", n)) or True)
     _clock(monkeypatch)
     return done, lambda: snipe.after_teleport(1, FAST, skin, price, price)
 
@@ -47,7 +49,7 @@ def test_the_matched_item_is_bought_and_the_stall_put_up_again(monkeypatch):
 
 
 def test_an_item_that_is_gone_is_not_bought_and_the_rest_goes_on(monkeypatch):
-    done, run = _flow(monkeypatch, [6, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)
+    done, run = _flow(monkeypatch, [6, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)  # the extra 8: the scroll that moves nothing
     assert run().startswith("The item was gone")
     assert len([d for d in done if d[0] == "click"]) == 7  # exit, inventory, All, Inspect, Sell, claim, same items
 
@@ -139,7 +141,7 @@ def test_not_enough_cash_closes_the_robux_box_and_goes_on(monkeypatch):
 
 
 def test_a_world_screen_before_the_loading_screen_does_not_count_as_arrived(monkeypatch):
-    frames = iter([shot(6), shot(6), BLACK] + [shot(n) for n in (6, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6)])
+    frames = iter([shot(6), shot(6), BLACK] + [shot(n) for n in (6, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6)])
     # still the old server, then loading, then the new one
     looks = []
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: looks.append(1) or next(frames), raising=False)
@@ -147,6 +149,8 @@ def test_a_world_screen_before_the_loading_screen_does_not_count_as_arrived(monk
     monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: True)
     held = []
     monkeypatch.setattr(snipe.controller, "hold_key", lambda hwnd, key, s: held.append(len(looks)) or True)
+    monkeypatch.setattr(snipe.screen, "client_rect", lambda hwnd: (0, 0, 1322, 743), raising=False)
+    monkeypatch.setattr(snipe.controller, "scroll", lambda hwnd, x, y, n: True)
     _clock(monkeypatch)
     snipe.after_teleport(1, FAST, "Nya Reaper", 15, 15)
     assert held[0] == 4  # the first key went down only after the 4th look: old world, old world, black, new world
@@ -169,7 +173,7 @@ def test_every_click_keeps_the_screen_before_it_in_order(monkeypatch):
 
 
 def test_an_ignored_click_on_the_stall_x_is_sent_again(monkeypatch):
-    done, run = _flow(monkeypatch, [6, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)
+    done, run = _flow(monkeypatch, [6, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)
     assert run().startswith("The item was gone")  # the stall was still open after the first click on its X
     exit_point = screens.snipe_button(shot(8), "stall_exit")
     assert [d[1] for d in done if d[0] == "click"][:2] == [exit_point, exit_point]
@@ -215,3 +219,36 @@ def test_dry_run_clicks_everything_but_the_green_check(monkeypatch):
     green = screens.snipe_button(shot(9), "buy_check")
     assert result.startswith("Dry run") and green not in clicks
     assert clicks[1] == screens.find_buy_cancel(shot(9)) and len(clicks) == 10  # the same steps as a real buy
+
+
+def _stall(n):
+    return cv2.imread(f"sniper_arena_scanner_handoff/stall_scroll_{n}.png")
+
+
+def _scrolling(monkeypatch, screens_in_order, skin, price):
+    done, run = _flow(monkeypatch, screens_in_order, skin, price)
+    monkeypatch.setattr(snipe.screen, "client_rect", lambda hwnd: (0, 0, 1880, 1065), raising=False)
+    return done, run
+
+
+def test_the_item_further_down_the_stall_is_found_by_scrolling(monkeypatch):
+    s1, s2, s3 = _stall(1), _stall(2), _stall(3)  # the three screens of one stall, top to bottom
+    done, run = _scrolling(monkeypatch, [6, 8, s1, s2, s2, s2, s3, s3, s3, 9, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6],
+                           "Plastic Toy WA 2000", 10)
+    assert run().startswith("Bought")
+    assert [d for d in done if d[0] == "scroll"] == [("scroll", 3)] * 2
+    assert [d[1] for d in done if d[0] == "click"][0] == screens.find_stall_buy(s3, "Plastic Toy WA 2000", 10, 10)
+
+
+def test_the_scrolling_stops_at_the_end_of_the_stall(monkeypatch):
+    s1 = _stall(1)
+    done, run = _scrolling(monkeypatch, [6, 8, s1, s1, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 10)
+    assert run().startswith("The item was gone")  # the list did not move after the scroll: nothing further down
+    assert [d for d in done if d[0] == "scroll"] == [("scroll", 3)]
+
+
+def test_the_scrolling_stops_once_everything_in_view_is_cheaper_than_the_item(monkeypatch):
+    s2 = _stall(2)  # prices 400 down to 15 only
+    done, run = _scrolling(monkeypatch, [6, 8, s2, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 2000)
+    assert run().startswith("The item was gone")
+    assert [d for d in done if d[0] == "scroll"] == []  # a stall lists dearest first: it would be above, already passed
