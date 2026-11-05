@@ -169,3 +169,16 @@ def test_ctrl_c_at_the_ready_prompt_stops_cleanly(monkeypatch, tmp_path):
     monkeypatch.setattr(main.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr("builtins.input", lambda prompt: (_ for _ in ()).throw(KeyboardInterrupt))
     assert main.main([]) == 130 and calls == []  # nothing was scanned or sent
+
+
+def test_a_dry_run_reads_dry_targets_csv(monkeypatch, tmp_path):
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)])
+    (tmp_path / "dry_targets.csv").write_text(HEADER + "Starveil AWP,Sniper,Limited,5000,,true\n")
+    main.main(["--snipe", "--dry-run", "--cycles", "1"])
+    assert {c[0] for c in calls} == {"Starveil AWP"}
+
+
+def test_a_dry_run_without_dry_targets_csv_stops_before_touching_anything(monkeypatch, tmp_path, capsys):
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)])
+    assert main.main(["--snipe", "--dry-run"]) == 2
+    assert "dry_targets.csv not found" in capsys.readouterr().out and calls == []

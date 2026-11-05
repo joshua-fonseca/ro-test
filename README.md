@@ -68,6 +68,7 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 - `rarity` is `Secret` or `Limited` (the scanner clicks that filter first).
 - `max_serial` can be empty.
 - Only rows with `enabled=true` and a `max_price` are scanned. A row with the wrong number of columns is skipped (a warning goes to `output/run.log`).
+- `dry_targets.csv` has the same columns and is read instead of `targets.csv` with `--dry-run`, so a rehearsal can use its own skins.
 
 ## Run
 
@@ -94,7 +95,7 @@ Commonly used flags:
 | Flag | Meaning |
 |---|---|
 | `--snipe` | on the first match: Teleport, buy from the seller's stall, relist your own stall, stop |
-| `--dry-run` | with `--snipe`: everything except the buy (the confirm box is cancelled) |
+| `--dry-run` | with `--snipe`: everything except the buy (the confirm box is cancelled). Reads `dry_targets.csv` instead of `targets.csv` |
 | `--width N` / `--height N` | first resize every game window so the game area is N px wide / high (16:9). Run it once per session. 1900 works on a 1920x1200 screen |
 
 Less used options:

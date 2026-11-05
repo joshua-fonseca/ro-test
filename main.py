@@ -15,7 +15,8 @@ Flags:
     --snipe           on the first match: Teleport, buy it from the seller's stall, put your own stall up again, then
                       stop the loop (scanner/windows/snipe.py; waits and hold times are in config.json)
     --dry-run         with --snipe: do every step but the buy: the confirm box is cancelled (its red X), the rest
-                      (stall X, Inventory ... same-items check) still runs, so it is a full rehearsal
+                      (stall X, Inventory ... same-items check) still runs, so it is a full rehearsal. Reads
+                      dry_targets.csv instead of targets.csv
     --width N         first resize the Roblox window so its game area is N px wide (height follows at 16:9);
     --height N        or N px high (width follows). Both = that exact size. Runs tools/resize_roblox.ps1.
 
@@ -87,6 +88,11 @@ def main(argv: list[str] | None = None) -> int:
     if a.dry_run and not a.snipe:
         args.error("--dry-run only works together with --snipe")
     cfg = dataclasses.replace(load_config(), dry_run=a.dry_run)
+    if a.dry_run:
+        cfg = dataclasses.replace(cfg, targets_path="dry_targets.csv")
+    if not os.path.exists(cfg.targets_path):
+        print(f"{cfg.targets_path} not found")
+        return 2
     if (a.width or a.height) and not resize_roblox(a.width, a.height):
         print("Could not resize the Roblox window (is it open and not fullscreen?)")
         return 2
