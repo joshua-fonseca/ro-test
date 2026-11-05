@@ -130,6 +130,12 @@ def _shift(a: np.ndarray, b: np.ndarray) -> tuple[int, float]:
     return best, errs[best]
 
 
+def _top_card_hidden(img: np.ndarray) -> bool:
+    """True if the first card of the list is cut off too far to read (at the top of a fresh list it is whole)."""
+    boxes = vision.find_cards(img)
+    return bool(boxes) and not vision.is_readable(boxes[0], vision.full_card(boxes[0], 0.48 * img.shape[0]))
+
+
 def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Path, now: datetime,
               max_steps: int = 300, at_top: bool = False, calibrate: bool = False, snipe: bool = False) -> dict:
     """Go to the top of the list, then read it down to the end or until prices pass max_price. No Windows calls.
@@ -155,7 +161,7 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
         still, view = (still + 1 if _same(v, view) else 0), v
         if still >= 2:
             break
-    seen, retries, still = [], 0, 0
+    seen, retries, still, hidden = [], 0, 0, 0
     key = (img.shape[1], img.shape[0])
     step = _steps.get(key, STEP)
     measuring = calibrate and key not in _steps  # a notch is 125-150 px depending on the window: measure it first
@@ -164,6 +170,16 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
             if view is None:
                 total["status"] = "list_lost"
                 break
+            if not total["frames"] and hidden < 6 and _top_card_hidden(img):
+                # something (an announcement banner) covers the top of the first card: it is the cheapest, and no later
+                # frame shows it again, so look again for up to 3 s instead of matching a dearer card below it
+                hidden += 1
+                time.sleep(0.5)
+                img = next_frame(0)
+                if img is None:
+                    return {**total, "status": "focus_lost"}
+                view = _view(img)  # the list may have closed meanwhile: the check at the top of the loop stops the wheel
+                continue
             t_frame = time.perf_counter()
             job = reader.submit(scan_visible, img, target, store, out, now, seen, first_only=total["sorted"])
             # a banner covers cards: look again before scrolling past them

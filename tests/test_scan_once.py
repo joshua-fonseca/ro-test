@@ -99,6 +99,7 @@ def test_banner_means_look_again_before_scrolling(tmp_path, monkeypatch):
     import scan_once
     banners, calls = iter([True, True]), []
     monkeypatch.setattr(scan_once.vision, "has_banner", lambda img: next(banners, False))
+    monkeypatch.setattr(scan_once, "_top_card_hidden", lambda img: False)  # this frame is the end of a list, not its top
     monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
     frames = _frames(FRAMES[24:])  # static list end: one card, quick
     monkeypatch.chdir(tmp_path)
@@ -108,6 +109,25 @@ def test_banner_means_look_again_before_scrolling(tmp_path, monkeypatch):
     r = scan_list(cv2.imread(FRAMES[24]), lambda n: calls.append(n) or frames(n), target, store, tmp_path, NOW)
     assert r["status"] == "complete"
     assert [n for n in calls if n >= 0][:3] == [0, 0, scan_once.STEP]  # two looks while the banner is up, then the scroll
+
+
+@needs_frames
+def test_a_banner_over_the_first_card_is_waited_out_not_matched_around(tmp_path, monkeypatch):
+    import scan_once
+    covered = cv2.imread("sniper_arena_scanner_handoff/live_banner_over_first_card_1700.png")  # first card cut off; the 20k one below matches
+    assert covered is not None and scan_once._top_card_hidden(covered)
+    assert not scan_once._top_card_hidden(cv2.imread(FRAMES[0]))
+    monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
+    calls = []
+    clean = _frames(FRAMES)
+    monkeypatch.chdir(tmp_path)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    target = Target("Starveil AWP", "Sniper", "Limited", 100_000, None, True)
+    r = scan_list(covered, lambda n: calls.append(n) or clean(n), target, store, tmp_path, NOW, at_top=True)
+    assert calls[0] == 0 and r["status"] == "stopped_at_first_match"  # looked again, then read the whole list from its top
+    with open(tmp_path / "output" / "listings.csv") as f:
+        assert [int(x["price"]) for x in csv.DictReader(f)][:1] == [3000]
 
 
 @needs_frames
@@ -478,3 +498,17 @@ def test_a_skin_nobody_sells_is_skipped_at_once_and_is_not_a_failure(monkeypatch
     assert scan_once.main(["Starveil AWP", "--navigate"]) == 0
     assert "No listings found" in capsys.readouterr().out
     assert _log_statuses(tmp_path) == ["no_listings"] and clicks == ["close"]  # the box is closed, nothing scrolled
+
+
+@needs_frames
+def test_a_list_that_closes_while_the_hidden_first_card_is_waited_out_stops_the_scan(tmp_path, monkeypatch):
+    import scan_once
+    covered = cv2.imread("sniper_arena_scanner_handoff/live_banner_over_first_card_1700.png")
+    monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
+    calls = []
+    monkeypatch.chdir(tmp_path)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    target = Target("Starveil AWP", "Sniper", "Limited", 100_000, None, True)
+    r = scan_list(covered, lambda n: calls.append(n) or np.zeros_like(covered), target, store, tmp_path, NOW, at_top=True)
+    assert r["status"] == "list_lost" and calls == [0]  # one look, then nothing is scrolled
