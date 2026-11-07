@@ -27,6 +27,7 @@ CARD_ASPECT = 4.62  # card width / height, measured on three window sizes
 MIN_SERIAL_CARD_WIDTH = 600  # shortcut: set from one fixture near the limit (1538 wide), retune once live captures at 1536-1700 exist
 # Field boxes as fractions of the card: x0, y0, x1, y1. Serial includes both brackets.
 PRICE_BOX = (0.72, 0.08, 0.895, 0.40)
+PRICE_CHARS = "0123456789,.kKmM"
 SERIAL_BOX = (0.04, 0.60, 0.22, 0.80)  # search area; the text itself is found by colour
 
 _BG = np.array([48, 42, 39])  # modal background, BGR
@@ -206,14 +207,17 @@ def read_serial(area: np.ndarray) -> tuple[tuple[int, bool] | None, int | None]:
 
 def read_price(card_img: np.ndarray) -> tuple[int, bool] | None:
     """(price, approximate) only if at least three reads agree and none disagree; a cut digit still parses."""
-    texts = _ocr(card_img, "0123456789,.kKmM")
-    if "" in texts or len(set(texts)) > 1:  # a live 7,000 card read '7,000', '7,000', ''; two variants can agree on a wrong price, so read
-        texts += _ocr(card_img, "0123456789,.kKmM", height=60)  # again at another size, as read_serial does
-    texts = [t for t in texts if t]
+    # 105 px first: on 112 saved cards smaller sizes drop a 1 ('1k' for '11k', all three reads agreeing) and bigger
+    # ones read 3 as 5. 120 px alone misreads some cards too, so after a retry the price must be read at both sizes
+    batches = [_ocr(card_img, PRICE_CHARS, height=105)]
+    if len(set(batches[0])) > 1 or parse_price(batches[0][0]) is None:  # a live 7,000 card read '7,000', '7,000', ''
+        batches.append(_ocr(card_img, PRICE_CHARS, height=120))
+    texts = [t for batch in batches for t in batch if t]
     best = max(texts, key=lambda t: (texts.count(t) >= 3, len(t)), default=None)  # the longest text read 3+ times
     # Reads drop a digit ('1k' for '11k') far more often than they invent one, so shorter reads that are the best
     # text minus some characters do not disagree with it; any other read does
-    if best is None or texts.count(best) < 3 or not all(_is_subsequence(t, best) for t in texts) or parse_price(best) is None:
+    if (best is None or texts.count(best) < 3 or not all(best in batch for batch in batches)
+            or not all(_is_subsequence(t, best) for t in texts) or parse_price(best) is None):
         return None
     return parse_price(best), price_is_approximate(best)
 

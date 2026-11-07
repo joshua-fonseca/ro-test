@@ -33,20 +33,23 @@ CASES = {
     "125355": (6, [(8700, (610, False)), (8998, (291, True))]),
     "nya_reaper": (17, [(9500, (668, False)), (9500, (575, False))]),  # pink blade touches the ']'
     "starveil_f02": (20, [(4000, (744, True)), (8000, (2248, False))]),
-    # Ryu's price (8,111) read 8,171 twice and 8,111 once: disagreeing reads must give no listing.
-    "starveil_f10": (20, [None, (8888, (324, True))]),
+    # Ryu's 8,111 read 8,171 twice and 8,111 once at 90 px; at 105 px it reads right
+    "starveil_f10": (20, [(8111, (2411, False)), (8888, (324, True))]),
     "starveil_f20": (20, [(12000, (2503, False)), (17000, (1644, False))]),
     # Live 1898x1068: Rope's 7,000 reads '7,000', '7,000', '' and must still give a price.
     "live_empty_price_read": (19, [(5500, (2195, False)), (7000, (740, True))]),
     # Noir Nya Reaper: rainbow thumbnail border, Japanese seller name, 'k' prices
     "live_noir_012": (15, [(13500, (73, True)), (13900, (141, True))]),
     "live_noir_019": (15, [(30000, (25, True)), (85000, (5, False))]),
+    # Live 1900: both 11k cards read '1k' or 'k' at 90 px, so a dry run matched the 11.1k card below them. The
+    # second reads '1k', 'k', 'k' at 105 px and 11k only at 120 px: refused, as '1k' read only at 120 px would be
+    "live_aether_11k_1900": (10, [(11000, (507, False)), None]),
 }
 
 
 # Serials that read correctly today; losing one is a regression.
 READABLE = {(240, True), (610, False), (291, True), (668, False), (575, False), (744, True), (2248, False),
-            (2503, False), (1644, False), (73, True), (5, False)}
+            (2503, False), (1644, False), (73, True), (5, False), (507, False)}
 
 
 @pytest.mark.parametrize("stamp", CASES)
@@ -158,9 +161,19 @@ def test_a_cut_off_card_with_no_readable_serial_is_left_for_the_next_frame(monke
 
 
 def test_a_price_read_with_a_dropped_digit_still_reads_when_the_full_text_is_read_three_times():
-    img = load_path("sniper_arena_scanner_handoff/live_nya_11k.png")  # 11k read as 11k, 1k, 1k, 11k, 11k, 1k
+    img = load_path("sniper_arena_scanner_handoff/live_nya_11k.png")  # read 11k, 1k, 1k, 11k, 11k, 1k at 90 px
     box = vision.find_cards(img)[1]
     assert vision.read_price(vision._sub(img, box, vision.PRICE_BOX)) == (11000, True)
+
+
+@pytest.mark.parametrize("at_105, at_120, expected", [
+    (["11k", "1k", "11k"], ["11k", "11k", "1k"], (11000, True)),  # a dropped digit does not disagree
+    (["k", "k", "k"], ["1k", "1k", "1k"], None),  # '1k' only read at 120 px: not 1,000
+    (["", "", ""], ["5,100", "5,100", "5,100"], None),  # 120 px alone can read 3,100 as 5,100
+])
+def test_after_a_retry_the_price_must_be_read_at_both_sizes(monkeypatch, at_105, at_120, expected):
+    monkeypatch.setattr(vision, "_ocr", lambda crop, chars, height: list({105: at_105, 120: at_120}[height]))
+    assert vision.read_price(None) == expected
 
 
 def test_reads_that_disagree_for_real_are_still_refused(monkeypatch):

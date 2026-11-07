@@ -159,5 +159,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # a window title like '✳ ...' must not crash a print to a pipe or file
+        stream.reconfigure(errors="replace")
     os.chdir(Path(__file__).parent)  # targets.csv and output/ are found next to this file, wherever it is started from
     sys.exit(main())

@@ -68,8 +68,7 @@ needs_frames = pytest.mark.skipif(len(FRAMES) != 29, reason="scroll frames missi
 def test_full_scroll_reads_every_card_once(tmp_path, monkeypatch):
     r, prices = _scan(tmp_path, monkeypatch, FRAMES, 100_000)
     assert (r["status"], r["sorted"], r["records"]) == ("complete", True, 20)
-    # 8,111 is left out on purpose: its price reads disagree
-    assert prices == [3000, 4000, 4000] + [8000] * 5 + [8888, 9500, 9500, 9999, 10000] + [12000] * 3 + [17000, 20000, 22000]
+    assert prices == [3000, 4000, 4000] + [8000] * 5 + [8111, 8888, 9500, 9500, 9999, 10000] + [12000] * 3 + [17000, 20000, 22000]
 
 
 @needs_frames
