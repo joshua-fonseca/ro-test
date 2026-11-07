@@ -230,3 +230,4 @@ graphify-out/
 
 # your own skin list: stays on this machine
 targets.csv
+dry_targets.csv

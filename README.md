@@ -52,11 +52,12 @@ python -m venv $env:USERPROFILE\.venvs\ro-test
    - `opencv-python-headless` and `numpy`: image matching.
    - `pytesseract`: the link to Tesseract.
 
-4. Make your own skin list: copy `targets.example.csv` to `targets.csv` and edit it (next section).
-   `targets.csv` is ignored by git, so it stays on your machine and `git pull` never touches it.
+4. Make your own skin lists: copy `targets.example.csv` to `targets.csv` and `dry_targets.example.csv` to `dry_targets.csv`, then edit them (next section).
+   Both are ignored by git, so they stay on your machine and `git pull` never touches them.
 
 ```powershell
 copy targets.example.csv targets.csv
+copy dry_targets.example.csv dry_targets.csv
 ```
 
 5. Update later with `git pull` (if the repo changes).
@@ -75,7 +76,7 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 - `rarity` is `Secret` or `Limited` (the scanner clicks that filter first).
 - `max_serial` can be empty.
 - Only rows with `enabled=true` and a `max_price` are scanned. A row with the wrong number of columns is skipped (a warning goes to `output/run.log`).
-- `dry_targets.csv` has the same columns and is read instead of `targets.csv` with `--dry-run`, so a rehearsal can use its own skins.
+- `dry_targets.csv` (copied from `dry_targets.example.csv`) has the same columns and is read instead of `targets.csv` with `--dry-run`, so a rehearsal can use its own skins.
   - Test the items you want to snipe first: put them in `dry_targets.csv` with a high `max_price`, so a listing matches and a `--dry-run` goes through every step.
 
 ## Run
