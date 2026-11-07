@@ -85,13 +85,14 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 2. In PowerShell, from the `ro-test` folder:
 
 ```powershell
-# scan only (read-only: nothing is bought)
+# scan only (read-only: nothing is bought). Reads targets.csv
 & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe main.py --width 1900
 
-# rehearsal: teleport and do every step but the buy (the confirm box is cancelled)
+# rehearsal: teleport and do every step but the buy (the confirm box is cancelled).
+# Reads dry_targets.csv, NOT targets.csv: its max_price is the one that counts
 & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe main.py --snipe --dry-run --width 1900
 
-# for real: buy on the first match, then put your own stall up again, then stop
+# for real: buy on the first match, then put your own stall up again, then stop. Reads targets.csv
 & $env:USERPROFILE\.venvs\ro-test\Scripts\python.exe main.py --snipe --width 1900
 ```
 

@@ -4,7 +4,9 @@ Every finder returns a click point only on the screen it belongs to, and None an
 rule for navigation: the green check in Search Options looks like the green Teleport buttons in the results
 list, so a point is never returned unless classify() has first confirmed the right screen.
 """
+import difflib
 import itertools
+import re
 
 import cv2
 import numpy as np
@@ -200,6 +202,23 @@ def _letters(text: str) -> str:
     return "".join(ch for ch in text.casefold() if ch.isalnum())
 
 
+def _close_name(read: str, name: str) -> bool:
+    """A misread of `name` that can only be `name`: the part before the bracket ('Aether Eternium Flip Knife') reads
+    nearly the same (90%+ alike; sibling skins such as Starember / Starry Flip Knife are at most 85% alike), and the
+    bracket part ('[RGB]') has the same length with at most one letter wrong, so a variant ('[Rainbow]', or no
+    bracket at all) never passes, and every digit must read exactly (only letters may be misread, so 'M4A1' never
+    passes for 'M4A4'). Seen live: 'Aether Eternlum Filp Knife (RC B)'."""
+    def split(text):
+        m = re.search(r"[\[(]", text)
+        return (text, None) if m is None else (text[:m.start()], _letters(text[m.start():]))
+    (rb, rs), (nb, ns) = split(read), split(name)
+    if [c for c in read if c.isdigit()] != [c for c in name if c.isdigit()]:  # M4A1 is never M4A4: numbers must read exactly
+        return False
+    if (rs is None) != (ns is None) or (ns is not None and (len(rs) != len(ns) or sum(a != b for a, b in zip(rs, ns)) > 1)):
+        return False
+    return difflib.SequenceMatcher(None, _letters(rb), _letters(nb)).ratio() >= 0.9
+
+
 def _trim(text: str) -> str:
     """Drop stray one-symbol words at the ends of a read ('1 Nya Reaper' -> 'Nya Reaper'): border bits read as symbols."""
     words = text.split()
@@ -286,9 +305,11 @@ def options_is_for(img: np.ndarray, name: str) -> bool:
     if classify(img) != "options":
         return False
     x, y, w, h = modal_box(img)
-    if len(_tiles_named(img, name, (x, y, x + w, y + h // 2))) == 1:
+    # the label read first (about 0.4 s, stops at the first match); the slower tile-label search (1-3 s) only if it fails
+    if any(_letters(r) == _letters(name) or _close_name(r, name)
+           for r in (_trim(text) for text in _options_label_reads(img, (x, y, w, h)))):
         return True
-    return any(_letters(_trim(text)) == _letters(name) for text in _options_label_reads(img, (x, y, w, h)))
+    return len(_tiles_named(img, name, (x, y, x + w, y + h // 2))) == 1
 
 
 def _white(crop: np.ndarray, threshold: int = 200) -> np.ndarray:

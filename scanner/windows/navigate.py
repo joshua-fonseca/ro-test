@@ -9,6 +9,7 @@ import logging
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
@@ -91,6 +92,7 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
     show their [Rainbow] variants, which are Secret), click the search box, clear any old text, and type the skin
     name, but only after the text cursor shows in the empty box: without it the letters would reach the game as
     key presses."""
+    t0 = time.time()
     img = wait_for(hwnd, "collection", 8)  # 8 s: an in-game "X bought Y" banner can cover the screen for ~6 s
     if filters_on:  # the last search already picked this category; the rarity is still checked (one look, no click if lit)
         category = None
@@ -147,6 +149,7 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
     if point is None:
         save("no_search_box", img)
         return False, "no search box on the collection screen"
+    t_filters = time.time()
     if not _click(hwnd, point, img):
         return False, "click not sent (Roblox lost focus, or the window changed size)"
     img = screen.capture(hwnd)
@@ -169,7 +172,9 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         save("search_not_cleared", img)
         return False, "could not clear the search box"
     before = img  # the grid as it was when the box was empty; it changes once the filter applies
-    if controller.paste_text(hwnd, skin):  # the whole name at once
+    t_cleared = time.time()
+    pasted = controller.paste_text(hwnd, skin)
+    if pasted:  # the whole name at once
         shown, img = _text_shows(hwnd)
         if shown is None:
             return False, "Roblox lost focus"
@@ -197,18 +202,27 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
             return False, "no text cursor in the search box; typed nothing"
         if not controller.type_text(hwnd, skin):
             return False, "typing stopped (Roblox lost focus, or a character has no key)"
+    t_typed = time.time()
+    how = "paste shown" if pasted else "typed"
     deadline = time.time() + 2
     while time.time() < deadline:
         img = screen.capture(hwnd)
         if img is None:
             return False, "Roblox lost focus"
         if _grid_change(img, before) > 2:
+            t_grid = time.time()
             time.sleep(0.4)  # the one wait that is needed: the searched skin takes a moment to load into the grid
             break
         time.sleep(0.05)
+    else:
+        t_grid = None
+    log.info("timing: search: collection screen and filters %.2f s, box click and clear %.2f s, %s %.2f s, %s",
+             t_filters - t0, t_cleared - t_filters, how, t_typed - t_cleared,
+             "grid did not change within 2 s" if t_grid is None else f"grid changed {t_grid - t_typed:.2f} s, then 0.4 s pause")
     return True, ""
 
 
+_name_reader = ThreadPoolExecutor(max_workers=1)  # the Search Options name (about 2 s of OCR), read while the list loads
 _slot: dict[str, int] = {}  # skin -> the tile (0 = first) its Search Options name matched last time
 
 
@@ -283,6 +297,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
             break  # no tile in that slot: no more variants
         if not _click(hwnd, tile, img):
             return None, "click not sent (Roblox lost focus, or the window changed size)"
+        t_tile = time.time()
         grid = img  # the tiles as they were before the click, kept for diagnostics
         img = wait_for(hwnd, "options", 4)
         if img is None:
@@ -293,8 +308,13 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
             return None, "no green check found in Search Options"
         if not _click(hwnd, check, img):
             return None, "click not sent (Roblox lost focus, or the window changed size)"
-        right_skin = screens.options_is_for(img, skin)  # read while the results load
+        t_check = time.time()
+        name_read = _name_reader.submit(screens.options_is_for, img, skin)  # read while the results load
         results = wait_for(hwnd, "results", 8)
+        t_results = time.time()
+        right_skin = name_read.result()
+        log.info("timing: open: Search Options and check click %.2f s after the tile click; results showed %.2f s "
+                 "after the check, name read done %.2f s after", t_check - t_tile, t_results - t_check, time.time() - t_check)
         if right_skin:
             _slot[skin] = k
             break

@@ -15,6 +15,7 @@ import itertools
 import logging
 import os
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -44,6 +45,34 @@ CLEARLY_OVER = 1.1  # a first card this far over max_price ends the scan alone: 
 
 
 _card_pool = ThreadPoolExecutor(max_workers=3)  # a frame shows 3-4 cards; vision has its own pool for the OCR calls
+_side = ThreadPoolExecutor(max_workers=1)  # the "N records found" title, read beside the scan (log only)
+_writer = ThreadPoolExecutor(max_workers=1)  # diagnostic screenshots: written in order, off the clock (a PNG took up to 0.4 s)
+
+
+_queued = threading.BoundedSemaphore(4)
+
+
+def _save_later(path, img, params=(), droppable: bool = False) -> None:
+    """Write a diagnostic PNG in the background. A droppable one (a scroll frame) is skipped when 4 frames already
+    wait, so they cannot pile up in memory; the failure screenshots are always written."""
+    if droppable and not _queued.acquire(blocking=False):
+        return
+
+    def write():
+        try:
+            cv2.imwrite(str(path), img, list(params))
+        finally:
+            if droppable:
+                _queued.release()
+    _writer.submit(write)
+
+
+def _clear_frames(frames_dir: Path) -> None:
+    for old in frames_dir.glob("*.png"):  # one that cannot go (open in a viewer) must not keep the rest
+        try:
+            old.unlink(missing_ok=True)
+        except OSError as e:
+            log.warning("could not delete old frame %s: %s", old, e)
 
 
 def _over(target: Target, listing) -> bool:
@@ -148,8 +177,20 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
     snipe: on a match the list is scrolled back to it (it moved on while the frame was read) and the result has
     total["match"] = (a fresh frame, the matched card's box in it, its listing), or no "match" if it was not found.
     """
+    records = _side.submit(vision.read_record_count, img)  # only for the log: read while the list is scanned
+    total = _scan_list(img, next_frame, target, store, out, now, max_steps, at_top, calibrate, snipe)
+    # a match does not wait for it: Teleport comes first
+    try:
+        count = records.result() if "match" not in total or records.done() else None
+    except Exception:  # a failed read of a log-only number must not lose the scan (or its match)
+        log.exception("reading the record count failed")
+        count = None
+    return {**total, "records": count}
+
+
+def _scan_list(img, next_frame, target, store, out, now, max_steps, at_top, calibrate, snipe) -> dict:
     total = {"read": 0, "matches": 0, "unreadable": 0, "lines": [], "frames": 0,
-             "records": vision.read_record_count(img), "sorted": True, "status": "max_steps"}
+             "records": None, "sorted": True, "status": "max_steps"}
     view, still = _view(img), 0
     for _ in range(0 if at_top else max_steps):  # start from the top so the first card is the cheapest
         img = next_frame(-UP)
@@ -182,15 +223,23 @@ def scan_list(img: np.ndarray, next_frame, target: Target, store: Store, out: Pa
                 continue
             t_frame = time.perf_counter()
             job = reader.submit(scan_visible, img, target, store, out, now, seen, first_only=total["sorted"])
-            # a banner covers cards: look again before scrolling past them
-            if vision.has_banner(img) and retries < 3:
+            # Most scans are decided by the first frame (a first card too dear, or a match): read it before scrolling,
+            # so such a list is not scrolled at all (and a match is not scrolled away from and back to)
+            decided = False
+            if not total["frames"]:
+                first = job.result()
+                decided = total["sorted"] and not first["unsorted"] and (first["over_pair"] or first["matches"] > 0)
+            # a banner covers cards: look again before scrolling past them (not when this frame already decided)
+            if not decided and vision.has_banner(img) and retries < 3:
                 retries += 1
                 time.sleep(1)
                 notches = 0
             else:
-                retries, notches = 0, (1 if measuring else step)
+                retries, notches = 0, (0 if decided else 1 if measuring else step)
             before = img
-            img = next_frame(notches)  # one scroll past a stop is harmless: the next frame is simply not read
+            # one scroll past a stop is harmless: the next frame is simply not read. A decided frame is not looked at
+            # again (a banner there could hold it for seconds): a match is clicked from it, after _teleport checks the list
+            img = img if decided else next_frame(notches)
             t_scrolled = time.perf_counter()
             r = job.result()
             total["frames"] += 1
@@ -270,8 +319,8 @@ def _back_to_match(next_frame, before: np.ndarray, now: np.ndarray | None, notch
         log.warning("the matched card was not found again after scrolling back: no Teleport")
         if probe is not None:  # diagnostics: the frame it was read on and the one after scrolling back
             probe.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(probe / "relocate_before.png"), before)
-            cv2.imwrite(str(probe / "relocate_after.png"), img)
+            _save_later(probe / "relocate_before.png", before)
+            _save_later(probe / "relocate_after.png", img)
         return None
     return img, found, listing
 
@@ -315,7 +364,7 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
             img = screen.capture(hwnd)
         last = img
         if frames_dir and img is not None:  # diagnostics: every frame, to check how far a step moves the list
-            cv2.imwrite(str(frames_dir / f"{next(frame_no):03d}.png"), img, [cv2.IMWRITE_PNG_COMPRESSION, 1])
+            _save_later(frames_dir / f"{next(frame_no):03d}.png", img, [cv2.IMWRITE_PNG_COMPRESSION, 1], droppable=True)
         return img
     return next_frame
 
@@ -406,7 +455,7 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             return 2, False
         probe = out / "probe"  # diagnostics: the screens it saw, to see why a step failed
         probe.mkdir(parents=True, exist_ok=True)
-        save = lambda name, im: cv2.imwrite(str(probe / f"nav_{name}.png"), im)  # noqa: E731
+        save = lambda name, im: _save_later(probe / f"nav_{name}.png", im)  # noqa: E731
         opened, why = (navigate.open_results(hwnd, target.skin_name, save) if searched else (None, ""))
         if opened is None and searched:  # the quick reopen failed: back to the grid, then search again
             navigate.back_to_collection(hwnd)
@@ -425,8 +474,8 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
     try:
         frames_dir = Path(cfg.output_dir) / "scan_frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
-        for old in frames_dir.glob("*.png"):  # only the latest run's frames are kept
-            old.unlink()
+        # only the latest run's frames are kept; queued behind the last run's frame writes, so none land afterwards
+        _writer.submit(_clear_frames, frames_dir)
         next_frame = _live_frames(hwnd, frames_dir)
         img = next_frame(0)
         # A long list takes a moment to draw its first cards after it opens; "No listings found" can show a moment after
@@ -451,7 +500,7 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             return 2, navigated
 
         log.info("timing: first card on screen %.2f s after the results opened", time.perf_counter() - t_open)
-        Image.fromarray(img[:, :, ::-1]).save(out / "last_capture.png")  # diagnostics: what the scan saw
+        _save_later(out / "last_capture.png", img)  # diagnostics: what the scan saw
         if not any(vision.is_complete(b) for b in vision.find_cards(img)):  # the StatTrak dialog has a card-like bar
             print("No results list on screen; nothing recorded")
             store.log_scan(now, target, "no_results_visible")

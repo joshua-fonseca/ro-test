@@ -372,7 +372,7 @@ def test_a_frame_is_read_while_the_list_scrolls_to_the_next(tmp_path, monkeypatc
     store = Store(tmp_path / "output")
     store.begin_cycle("c1")
     r = scan_list(cv2.imread(FRAMES[0]), next_frame, target, store, tmp_path / "output", NOW, at_top=True, max_steps=3)
-    assert r["frames"] == 3 and overlaps and all(overlaps)
+    assert r["frames"] == 3 and overlaps and not overlaps[0] and all(overlaps[1:])  # the first frame is read before any scroll
 
 
 @needs_frames
@@ -399,7 +399,7 @@ def test_find_teleport_points_at_a_green_button_of_the_given_card():
     assert screens.find_teleport(img, (100, 100, 800, 270)) is None  # not a card of the list: nothing green there
 
 
-def test_snipe_scrolls_back_to_the_match_and_finds_the_card_again(tmp_path):
+def test_snipe_scrolls_back_to_the_match_and_finds_the_card_again(tmp_path, monkeypatch):
     frames = sorted(glob.glob("sniper_arena_scanner_handoff/scroll_noire_1069/*.png"))
     first, second = cv2.imread(frames[0]), cv2.imread(frames[1])
     asked = []
@@ -410,8 +410,16 @@ def test_snipe_scrolls_back_to_the_match_and_finds_the_card_again(tmp_path):
     target = Target("Noire Nya Reaper", "Sniper", "Secret", 10_000_000, None, True)  # the first card matches
     r = scan_list(first, next_frame, target, Store(tmp_path / "output"), tmp_path, NOW, at_top=True, snipe=True)
     shown, box, listing = r["match"]
-    assert r["status"] == "stopped_at_first_match" and asked[0] > 0 and asked[-1] == -asked[0] and shown is first
-    assert screens.find_teleport(first, box) is not None
+    assert r["status"] == "stopped_at_first_match" and shown is first and screens.find_teleport(first, box) is not None
+    assert all(n == 0 for n in asked)  # a first frame that matches is not scrolled away from at all
+    asked.clear()
+    reads = iter([None])  # the first read finds nothing, so the scan scrolls on and finds the match one frame later
+    real = scan_once.scan_visible
+    monkeypatch.setattr(scan_once, "scan_visible", lambda *a, **k: (
+        {"read": 0, "matches": 0, "unreadable": 0, "lines": [], "unsorted": False, "over_pair": False}
+        if next(reads, 1) is None else real(*a, **k)))
+    r = scan_list(first, next_frame, target, Store(tmp_path / "o3"), tmp_path, NOW, at_top=True, snipe=True)
+    assert r["status"] == "stopped_at_first_match" and asked[0] > 0 and asked[-1] == -asked[0]  # scrolled back the same notches
     r = scan_list(first, next_frame, target, Store(tmp_path / "o2"), tmp_path, NOW, at_top=True)
     assert "match" not in r  # without snipe nothing is kept for a click
 
@@ -525,3 +533,15 @@ def test_a_seller_who_left_sends_the_scan_on_with_a_fresh_search(monkeypatch, tm
     listing = types.SimpleNamespace(price=100, price_approx=False)
     target = Target("Nya Reaper", "Knife", "Secret", 999, 2, True)
     assert scan_once._snipe(1, Config(), tmp_path, target, None, None, listing) == scan_once.SELLER_LEFT
+
+
+@needs_frames
+def test_a_first_frame_that_decides_the_scan_is_not_scrolled(tmp_path, monkeypatch):
+    calls = []
+    frames = _frames(FRAMES)
+    monkeypatch.chdir(tmp_path)
+    store = Store(tmp_path / "output")
+    store.begin_cycle("c1")
+    target = Target("Starveil AWP", "Sniper", "Limited", 1000, None, True)  # the list starts at 3,000
+    r = scan_list(cv2.imread(FRAMES[0]), lambda n: calls.append(n) or frames(n), target, store, tmp_path, NOW, at_top=True)
+    assert (r["status"], r["records"]) == ("stopped_at_price", 20) and calls == []  # not even looked at again, nothing scrolled

@@ -210,3 +210,20 @@ def test_no_listings_at_1700_wide_is_not_taken_for_the_collection_screen():
     img = cv2.imread("sniper_arena_scanner_handoff/live_no_listings_dark_1700.png")  # the dimmed bar behind it only shows its lip
     assert img is not None and screens._search_bar(img) is None
     assert screens.no_listings(img) and screens.find_close_button(img) is not None
+
+
+def test_a_long_name_misread_a_little_still_counts_but_a_variant_never_does():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_options_aether_rgb_1900.png")  # read 'Aether Eternlum Filp Knife (RC B)'
+    assert img is not None and screens.options_is_for(img, "Aether Eternium Flip Knife [RGB]")
+    for other in ("Aether Eternium Flip Knife", "Aether Eternium Flip Knife [Rainbow]", "Nya Machete [RGB]"):
+        assert not screens.options_is_for(img, other)
+    assert screens._close_name("Aether Eternlum Filp Knife (RC B)", "Aether Eternium Flip Knife [RGB]")
+    assert not screens._close_name("Starember Flip Knife", "Starry Flip Knife")  # siblings stay apart
+    assert not screens._close_name("Nocturne M200 [RGB]", "Nocturne M200 [Rainbow]")
+    assert not screens._close_name("Nocturne M200", "Nocturne M200 [RGB]")
+
+
+def test_a_close_name_must_have_the_same_numbers():
+    assert not screens._close_name("Hyper Beast M4A1", "Hyper Beast M4A4")
+    assert not screens._close_name("Nocturne M210 [Rainbow]", "Nocturne M200 [Rainbow]")
+    assert screens._close_name("Nocturne M200 [Ralnbow]", "Nocturne M200 [Rainbow]")  # one letter misread: fine
