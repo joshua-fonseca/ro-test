@@ -26,6 +26,7 @@ import numpy as np
 from PIL import Image
 
 from scanner.reading import screens, vision
+from scanner.logic import discord
 from scanner.logic.config import load_config
 from scanner.logic.cropper import save_crop
 from scanner.logic.matcher import matches
@@ -396,11 +397,12 @@ def _teleport(hwnd: int, shown: np.ndarray, card, probe: Path | None = None) -> 
     return True, ""
 
 
-def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) -> int:
+def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing, report=print) -> int:
     """--snipe on a match: Teleport, then snipe.after_teleport. A full server ("Teleport Failed", Ok clicked) is tried
     again on the same listing, up to cfg.teleport_retries more times, while the list still shows it. TELEPORTED once it
     teleported (the loop stops); SELLER_LEFT if the seller was gone and the search menu was opened again (the scan goes
-    on, with a fresh search); 0 to close the results and go on with the next skin."""
+    on, with a fresh search); 0 to close the results and go on with the next skin. `report(text)` gets how it ended
+    (bought, gone from the stall, seller left, stopped...), once."""
     from scanner.windows import snipe as flow
     probe = out / "probe"
     probe.mkdir(parents=True, exist_ok=True)
@@ -412,31 +414,33 @@ def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) 
         t = time.perf_counter()
         teleported, why = _teleport(hwnd, shown, card, probe)
         log.info("timing: checking and clicking Teleport took %.2f s", time.perf_counter() - t)
-        print("Teleport clicked." if teleported else f"Teleport not clicked: {why}. Going on with the next skin.")
         if not teleported:
+            report(f"Teleport not clicked: {why}. Going on with the next skin.")
             return 0
+        print("Teleport clicked.")
         try:
-            print(flow.after_teleport(hwnd, cfg, target.skin_name, listing.price,
+            report(flow.after_teleport(hwnd, cfg, target.skin_name, listing.price,
                                       price_high(listing.price, listing.price_approx),
                                       lambda name, im: cv2.imwrite(str(probe / f"{name}.png"), im)))
         except flow.NotTeleported as e:  # still on this server with the list up: same as Teleport not clicked
-            print(f"{e}. Going on with the next skin.")
+            report(f"{e}. Going on with the next skin.")
             return 0
         except flow.SellerLeft as e:
-            print(f"{e}; walked back and opened the search menu. Nothing bought. Going on.")
+            report(f"{e}; walked back and opened the search menu. Nothing bought. Going on.")
             return SELLER_LEFT
         except flow.TeleportFailed as e:  # Ok was clicked: the results list shows again
-            print(f"Teleport failed: {e}. Clicked Ok; "
-                  + ("going on with the next skin." if attempt == cfg.teleport_retries else "trying the same listing again."))
+            last = attempt == cfg.teleport_retries
+            (report if last else print)(f"Teleport failed: {e}. Clicked Ok; "
+                                        + ("going on with the next skin." if last else "trying the same listing again."))
             continue
         except flow.Stopped as e:
-            print(f"Snipe stopped: {e}. Nothing more was sent; take over from here.")
+            report(f"Snipe stopped: {e}. Nothing more was sent; take over from here.")
             if e.img is not None:  # diagnostics: the screen the flow gave up on
                 cv2.imwrite(str(probe / "snipe_stopped.png"), e.img)
                 print(f"The screen it stopped on: {probe / 'snipe_stopped.png'}")
         except Exception:  # Teleport went through: whatever broke, never go back to scanning on the new server
             log.exception("the snipe flow crashed after Teleport")
-            print("Snipe stopped: the flow crashed after Teleport (see run.log). Nothing more was sent; take over from here.")
+            report("Snipe stopped: the flow crashed after Teleport (see run.log). Nothing more was sent; take over from here.")
         return TELEPORTED
     return 0
 
@@ -518,15 +522,22 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         store.log_scan(now, target, r["status"], r["read"], r["matches"],
                        f"records_found={r['records']} frames={r['frames']} unreadable_reads={r['unreadable']}"
                        f" sorted={r['sorted']}")
+        sniping = snipe and navigated
         for line in r["lines"]:
             print(line)
+            if not sniping:  # a snipe sends its message once it knows what became of the item
+                discord.notify(cfg, line)
         print(f"{r['status']}: {r['read']} listing(s) read, {r['matches']} match(es); records found: {r['records']}"
               + (f"; {r['unreadable']} unreadable card read(s)" if r["unreadable"] else "")
               + ("" if r["sorted"] else "; list was not sorted by price, scrolled to the end"))
         log.info("timing: reading the list took %.2f s (%d frames); results opened %.2f s ago",
                  time.perf_counter() - t_scan, r["frames"], time.perf_counter() - t_open)
+        if sniping and r["lines"] and not r.get("match"):
+            discord.notify(cfg, r["lines"][0], "Not teleported: the matched card was not found again after scrolling back.")
         if r.get("match"):  # only set when scan_list ran with snipe
-            result = _snipe(hwnd, cfg, out, target, *r["match"])
+            line = r["lines"][0] if r["lines"] else ""
+            result = _snipe(hwnd, cfg, out, target, *r["match"],
+                            report=lambda text: (print(text), discord.notify(cfg, line, text)))  # notify never raises
             teleported = bool(result)  # on a new server: the results list is not there to close
             if result == TELEPORTED:
                 return TELEPORTED, navigated

@@ -5,8 +5,10 @@ from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
 
-CATEGORIES = {"Sniper", "Knife"}
-RARITIES = {"Secret", "Limited"}
+# What may be typed in the csv (any case) -> the name the rest of the program uses
+CATEGORIES = {"sniper": "Sniper", "knife": "Knife"}
+RARITIES = {"secret": "Secret", "scrt": "Secret", "limited": "Limited", "ltd": "Limited"}
+BOOLEANS = {"true": True, "t": True, "false": False, "f": False}
 
 
 @dataclass(frozen=True)
@@ -43,20 +45,20 @@ def _parse_row(row: dict) -> Target:
     skin = (row.get("skin_name") or "").strip()
     category = (row.get("category") or "").strip()
     rarity = (row.get("rarity") or "").strip()
-    enabled = (row.get("enabled") or "").strip().lower()
+    enabled = (row.get("enabled") or "").strip()
     if not skin:
         raise ValueError("empty skin_name")
-    if category not in CATEGORIES:
+    if category.lower() not in CATEGORIES:
         raise ValueError(f"bad category {category!r}")
-    if rarity not in RARITIES:
+    if rarity.lower() not in RARITIES:
         raise ValueError(f"bad rarity {rarity!r}")
-    if enabled not in {"true", "false"}:
-        raise ValueError(f"bad enabled {enabled!r}")
+    if enabled.lower() not in BOOLEANS:
+        raise ValueError(f"bad enabled {enabled!r} (use t or f)")
     return Target(
-        skin, category, rarity,
+        skin, CATEGORIES[category.lower()], RARITIES[rarity.lower()],
         _opt_int(row.get("max_price") or ""),
         _opt_int(row.get("max_serial") or ""),
-        enabled == "true",
+        BOOLEANS[enabled.lower()],
     )
 
 
@@ -71,6 +73,8 @@ def load_targets(path: str) -> list[Target]:
         lines = ["\n" if text.lstrip().startswith("#") else text for text in f]
         start = next((i for i, text in enumerate(lines) if text.strip()), len(lines))
         rows = csv.DictReader(lines[start:])
+        if rows.fieldnames:
+            rows.fieldnames = [name.strip().lower() for name in rows.fieldnames]  # headers in any case
         for row in rows:
             line = start + rows.line_num
             try:

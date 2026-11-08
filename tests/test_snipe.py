@@ -77,7 +77,7 @@ def test_each_snipe_button_shows_only_on_its_own_screen():
 
 
 def test_a_stop_keeps_the_screen_it_gave_up_on(monkeypatch):
-    _, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)  # still in the world: no stall, and no "E Search" prompt after walking back
+    _, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)  # still in the world: no stall, and no search menu after walking back
     with pytest.raises(snipe.Stopped) as e:
         run()
     assert e.value.img is not None and "stall did not open" in str(e.value)
@@ -296,27 +296,16 @@ def test_the_cancel_x_is_found_in_the_row_of_the_check_even_with_red_tiles_below
 
 def test_a_seller_who_left_means_walking_back_and_opening_the_search_menu(monkeypatch):
     collection = cv2.imread("sniper_arena_scanner_handoff/live_collection.png")
-    prompt = cv2.imread("sniper_arena_scanner_handoff/live_open_prompt_1691.png")
-    done, run = _flow(monkeypatch, [6, 6, prompt, collection], "Nya Reaper", 15)  # the map centre: no stall; the prompt; the menu
+    done, run = _flow(monkeypatch, [6, 6, collection], "Nya Reaper", 15)  # the map centre: no stall; then the menu
     with pytest.raises(snipe.SellerLeft):
         run()
-    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "W", "E"]  # then W for 1 s and E to open the menu
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "W", "E"]  # then W for 0.7 s and E, prompt or not
     assert not [d for d in done if d[0] == "click"]
 
 
-def test_no_open_prompt_after_walking_back_means_no_e_is_held(monkeypatch):
+def test_no_search_menu_after_walking_back_is_a_stop(monkeypatch):
     done, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)
-    with pytest.raises(snipe.Stopped, match="no 'E Search' prompt"):
+    with pytest.raises(snipe.Stopped, match="search menu did not open"):
         run()
-    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "W"]  # the second E was never sent
-
-
-def test_the_open_prompt_is_found_on_its_screen_and_not_on_others():
-    prompt = cv2.imread("sniper_arena_scanner_handoff/live_open_prompt_1691.png")
-    x, y = screens.find_open_prompt(prompt)
-    assert abs(x - 657) < 15 and abs(y - 649) < 15
-    new_lobby = cv2.imread("sniper_arena_scanner_handoff/live_search_prompt_new_lobby.png")  # "E Search", after W for 1 s
-    x, y = screens.find_open_prompt(new_lobby)
-    assert abs(x - 735) < 15 and abs(y - 650) < 15
-    for name in ("live_new_lobby_server_list_prompt", "live_map_centre_no_prompt_1693", "live_collection", "live_options_1700", "live_no_listings_dark_1700"):
-        assert screens.find_open_prompt(cv2.imread(f"sniper_arena_scanner_handoff/{name}.png")) is None
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "W", "E"]
+    assert not [d for d in done if d[0] == "click"]

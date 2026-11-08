@@ -17,7 +17,7 @@ class Config:
     teleport_retries: int = 3  # "Teleport Failed" (server full): click Teleport on the same listing this many more times
     walk_seconds: float = 0.5  # hold W, then S, to stand where the stall's "E Open" prompt shows
     hold_e_seconds: float = 1  # hold E to open a stall
-    back_to_search_seconds: float = 1.0  # hold W from the map centre (the seller had left) to reach the Search terminal
+    back_to_search_seconds: float = 0.7  # hold W from the map centre (the seller had left) to reach the Search terminal
     stall_max_scrolls: int = 20  # how many times to scroll down a stall looking for the item (about 3 rows each)
     stall_scroll_notches: int = 3  # per scroll: 375 px, less than the 2+ rows in view, so no row is skipped
     stall_load_seconds: float = 5  # how long to keep looking for the item in a stall before calling it gone
@@ -25,6 +25,11 @@ class Config:
     dry_run: bool = False  # set by `main.py --snipe --dry-run`: every step but the buy check; the box is cancelled
     robux_box_wait_seconds: float = 2  # after the green check: how long to wait for a late Buy Robux box
     snipe_click_pause: float = 0.5  # after each click, for the next screen to show
+    # Discord message about a found weapon (off while server or channel is empty); the bot token is the DISCORD_BOT_TOKEN
+    # environment variable, never a file
+    discord_server: str = ""  # the server's name, as the bot sees it
+    discord_channel: str = ""  # the text channel's name in that server
+    discord_send: str = "text"  # "text" = the match line, "picture" = the card's picture; the status follows either
 
 
 def load_config(path: str = "config.json") -> Config:

@@ -206,13 +206,11 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _hold(hwnd, E, cfg.hold_e_seconds)
     exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: screens.snipe_button(im, "stall_exit"))
     if exit_point is None:
-        # Most likely the seller left the server: the Teleport put us at the map centre. W for 1 s (new lobby) reaches the Search
-        # terminal ("E Search"), and holding E opens the search menu. Anything else is a stop.
+        # Most likely the seller left the server: the Teleport put us at the map centre. W for 0.7 s (new lobby) reaches
+        # the Search terminal and holding E opens the search menu. Its "E Search" prompt is not looked for: depending on
+        # the camera it can sit under the leaderboard (seen live). E only opens a menu; anything but the search menu is a stop.
         _shot("seller_not_at_stall", img)
         _hold(hwnd, W, cfg.back_to_search_seconds)
-        prompt, img = _wait(hwnd, cfg.snipe_step_timeout, screens.find_open_prompt)
-        if prompt is None:  # E would open nothing known: send nothing more
-            raise Stopped("the seller's stall did not open, and no 'E Search' prompt showed after walking back", img)
         _hold(hwnd, E, cfg.hold_e_seconds)
         menu, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: (0, 0) if screens.classify(im) == "collection" else None)
         if menu is None:
@@ -277,5 +275,5 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _press(hwnd, cfg, "same_items_check")
     done = ("Not enough cash (closed Roblox's Buy Robux box); nothing bought" if _steps["short"] else
             "Dry run: stopped at the confirm box (cancelled), nothing bought" if dry else
-            "Bought" if buy is not None else "The item was gone from the stall; nothing bought")
+            "Bought the item" if buy is not None else "The item was gone from the stall; nothing bought")
     return done + ", then put your stall up again."

@@ -73,9 +73,10 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 ```
 
 - `category` is `Sniper` or `Knife`.
-- `rarity` is `Secret` or `Limited` (the scanner clicks that filter first).
+- `rarity` is `Secret` (or `scrt`) or `Limited` (or `ltd`); the scanner clicks that filter first.
+- Capital letters don't matter anywhere (`SCRT`, `Ltd`, `sniper` all work, and so do the column names in the first line).
 - `max_serial` can be empty.
-- Only rows with `enabled=true` and a `max_price` are scanned. A row with the wrong number of columns is skipped (a warning goes to `output/run.log`).
+- `enabled` is `true` or `t` to scan the row, `false` or `f` to skip it. Only enabled rows with a `max_price` are scanned. A row with the wrong number of columns is skipped (a warning goes to `output/run.log`).
 - `dry_targets.csv` (copied from `dry_targets.example.csv`) has the same columns and is read instead of `targets.csv` with `--dry-run`, so a rehearsal can use its own skins.
   - Test the items you want to snipe first: put them in `dry_targets.csv` with a high `max_price`, so a listing matches and a `--dry-run` goes through every step.
 
@@ -141,6 +142,23 @@ counts). Unknown keys are ignored.
 ```json
 {"teleport_max_seconds": 120}
 ```
+
+## Discord messages (optional)
+
+The scanner can post to a Discord channel when it finds a weapon, **once it knows what became of it**: bought, gone
+from the stall, the seller left, a stop that needs you, and so on. Leave the settings below empty and nothing is sent.
+With a scan only (no `--snipe`) the message is the match on its own.
+
+1. Make a bot at https://discord.com/developers/applications (New Application, Bot, Reset Token) and invite it to your server (OAuth2, URL Generator, scope `bot`, permissions View Channel, Send Messages, Attach Files).
+2. Put the server and channel names in `config.json` (`discord_send` is `"text"` for the match line or `"picture"` for the card's picture; the status follows either):
+
+```json
+{"discord_server": "My Server", "discord_channel": "sniper-alerts", "discord_send": "picture"}
+```
+
+3. Give PowerShell the bot token. The token is never saved in a project file: it is read from the `DISCORD_BOT_TOKEN` environment variable. For the current window only: `$env:DISCORD_BOT_TOKEN = "your token"`. To keep it for every new window: `setx DISCORD_BOT_TOKEN "your token"` (then open a new PowerShell).
+
+A message looks like `[SECRET] [Prismatica Aurora ShadowDaggers] [#345] [6,000] [output/screenshots/matches/...png]` followed by `Bought the item, then put your stall up again.`, or `The item was gone from the stall; nothing bought, then put your stall up again.`, or `the seller left the server; walked back and opened the search menu. Nothing bought. Going on.` If a message can't be sent, one line says why and the scan goes on.
 
 ## Develop and test (WSL or Linux)
 

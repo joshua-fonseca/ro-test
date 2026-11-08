@@ -466,6 +466,26 @@ def test_a_full_server_is_tried_again_on_the_same_listing_then_the_next_skin(mon
     assert len(tries) == 4  # the first try and 3 retries, then next skin
 
 
+def test_a_snipe_reports_once_how_it_ended(monkeypatch, tmp_path):
+    from scanner.logic.config import Config
+    from scanner.windows import snipe as flow
+    listing = types.SimpleNamespace(price=100, price_approx=False)
+    target = Target("Nya Reaper", "Knife", "Secret", 999, 2, True)
+    told = []
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (True, ""))
+    for outcome, want in ((lambda *a: "Bought the item, then put your stall up again.", "Bought the item"),
+                          (lambda *a: (_ for _ in ()).throw(flow.SellerLeft("the seller left the server")), "seller left"),
+                          (lambda *a: (_ for _ in ()).throw(flow.Stopped("no stall X")), "Snipe stopped: no stall X")):
+        told.clear()
+        monkeypatch.setattr(flow, "after_teleport", outcome)
+        scan_once._snipe(1, Config(), tmp_path, target, None, None, listing, report=told.append)
+        assert len(told) == 1 and want in told[0]
+    told.clear()
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (False, "the list moved"))
+    scan_once._snipe(1, Config(), tmp_path, target, None, None, listing, report=told.append)
+    assert told == ["Teleport not clicked: the list moved. Going on with the next skin."]
+
+
 def test_the_card_is_found_again_though_its_rainbow_picture_and_seller_name_changed():
     # seen live: the picture animates and "[Loading...]" became a name, so a whole-card match scored only 0.93
     before = cv2.imread("sniper_arena_scanner_handoff/relocate_before.png")
