@@ -67,6 +67,14 @@ def test_non_match_is_logged_but_not_a_match(tmp_path):
     assert not (tmp_path / "matches.csv").exists()
 
 
+def test_a_snipe_reports_a_listing_that_matched_before_so_it_has_its_picture_again(tmp_path):
+    s = Store(tmp_path)
+    listing = Listing(8700, 610, False, "Bob123")
+    s.begin_cycle("c1"); assert s.record(NOW, TARGET, listing, True, crop); s.end_cycle()
+    s.begin_cycle("c2"); line = s.record(NOW, TARGET, listing, True, crop, report_again=True)
+    assert line and "x.png" in line and len(rows(tmp_path / "matches.csv")) == 2
+
+
 def test_later_cycles_append_listings_but_do_not_renotify(tmp_path):
     s = Store(tmp_path)
     listing = Listing(8700, 610, False, "Bob123")

@@ -109,12 +109,13 @@ class Store:
         self._save_state()
 
     def record(self, observed_at: datetime, target: Target, listing: Listing, matched: bool,
-               make_crop: Callable[[], tuple[str, str]] | None = None) -> str | None:
+               make_crop: Callable[[], tuple[str, str]] | None = None, report_again: bool = False) -> str | None:
         """Log one observation. Returns the compact notification line the first time a listing qualifies.
 
         Repeat sightings within a cycle (scroll overlap) are ignored. A listing that stops
         qualifying and later qualifies again notifies again; a price change alone does not.
-        make_crop is called only for a new match and returns (screenshot_path, crop_status).
+        make_crop is called only for a new match and returns (screenshot_path, crop_status). report_again: a listing
+        that already matched counts as new (--snipe acts on it again, so it needs its line and picture again).
         """
         assert observed_at.tzinfo is not None, "observed_at must carry a timezone offset"
         lid = listing_id(target, listing)
@@ -123,7 +124,7 @@ class Store:
         self._seen.add(lid)
 
         was_matching = self.state.get(lid, {}).get("matching", False)
-        new_match = matched and not was_matching
+        new_match = matched and (not was_matching or report_again)
         shot, crop_status = make_crop() if new_match and make_crop else ("", "")
         row = {
             "scan_id": self.scan_id, "observed_at": observed_at.isoformat(timespec="seconds"),

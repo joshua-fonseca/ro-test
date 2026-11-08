@@ -82,11 +82,12 @@ def _over(target: Target, listing) -> bool:
 
 
 def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: datetime,
-                 seen: list | None = None, first_only: bool = False) -> dict:
+                 seen: list | None = None, first_only: bool = False, report_again: bool = False) -> dict:
     """Read every card in one capture, record it, and save a crop for each new match. No Windows calls.
 
     seen: vision.read_card's cache across frames; repeat cards are not recorded again.
     first_only: stop at the first match (cards below it are read but not recorded).
+    report_again: a match that was found in an earlier scan gets its line and picture again (--snipe).
     """
     pil = Image.fromarray(img[:, :, ::-1])  # BGR -> RGB, real captured pixels
     boxes = vision.find_cards(img)
@@ -118,7 +119,8 @@ def scan_visible(img: np.ndarray, target: Target, store: Store, out: Path, now: 
         ok = matches(target, listing)
         result["matches"] += ok
         line = store.record(now, target, listing, ok, make_crop=lambda box=card.box, l=listing: save_crop(
-            pil, box, out / "screenshots" / "matches", Path.cwd(), now, target.skin_name, l.price, l.seller))
+            pil, box, out / "screenshots" / "matches", Path.cwd(), now, target.skin_name, l.price, l.seller),
+            report_again=report_again)
         if line:
             result["lines"].append(line)
         if ok and first_only:
@@ -224,7 +226,8 @@ def _scan_list(img, next_frame, target, store, out, now, max_steps, at_top, cali
                 view = _view(img)  # the list may have closed meanwhile: the check at the top of the loop stops the wheel
                 continue
             t_frame = time.perf_counter()
-            job = reader.submit(scan_visible, img, target, store, out, now, seen, first_only=total["sorted"])
+            job = reader.submit(scan_visible, img, target, store, out, now, seen, first_only=total["sorted"],
+                               report_again=snipe)
             # Most scans are decided by the first frame (a first card too dear, or a match): read it before scrolling,
             # so such a list is not scrolled at all (and a match is not scrolled away from and back to)
             decided = False
