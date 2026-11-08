@@ -14,6 +14,7 @@ from scanner.reading import screens
 from scanner.windows import controller, navigate, screen
 
 W, S, E = 0x57, 0x53, 0x45  # virtual keys
+STAY_PAUSE = 0.2  # after Inventory, All and Inspect (they stay on screen), and once a closing button is gone
 HOVER = 0.1  # Roblox can ignore a press that lands the instant the cursor reaches a button (seen live on the stall X)
 
 
@@ -104,15 +105,21 @@ def _press(hwnd: int, cfg, name: str, find=None) -> None:
             continue
         if not _click(hwnd, point, img, name):
             raise Stopped(f"click on {name} not sent (Roblox lost focus, or the window changed size)", img)
-        time.sleep(cfg.snipe_click_pause)  # the next screen takes a moment to replace this one
         if name not in GONE_AFTER:
+            time.sleep(STAY_PAUSE)  # the next button may already show on the old screen: give the new one a moment
             return
-        img = screen.capture(hwnd)
-        if img is None:
-            raise Stopped("Roblox lost focus")
-        point = look(img)
-        if point is None:
-            return
+        end = time.time() + cfg.snipe_click_pause
+        while True:  # on as soon as the button is gone; clicked again only if it is still there after the full pause
+            time.sleep(0.1)
+            img = screen.capture(hwnd)
+            if img is None:
+                raise Stopped("Roblox lost focus")
+            point = look(img)
+            if point is None:
+                time.sleep(STAY_PAUSE)  # gone, but a closing box may still be fading: let the next screen settle
+                return
+            if time.time() >= end:
+                break
     raise Stopped(f"the {name} button was clicked 3 times and is still there", img)
 
 
@@ -199,23 +206,24 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _hold(hwnd, E, cfg.hold_e_seconds)
     exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: screens.snipe_button(im, "stall_exit"))
     if exit_point is None:
-        # Most likely the seller left the server: the Teleport put us at the map centre. S for 1.75 s reaches the Search
-        # terminal ("E Open"), and holding E opens the search menu. Anything else is a stop.
+        # Most likely the seller left the server: the Teleport put us at the map centre. W for 1 s (new lobby) reaches the Search
+        # terminal ("E Search"), and holding E opens the search menu. Anything else is a stop.
         _shot("seller_not_at_stall", img)
-        _hold(hwnd, S, cfg.back_to_search_seconds)
+        _hold(hwnd, W, cfg.back_to_search_seconds)
         prompt, img = _wait(hwnd, cfg.snipe_step_timeout, screens.find_open_prompt)
         if prompt is None:  # E would open nothing known: send nothing more
-            raise Stopped("the seller's stall did not open, and no 'E Open' prompt showed after walking back", img)
+            raise Stopped("the seller's stall did not open, and no 'E Search' prompt showed after walking back", img)
         _hold(hwnd, E, cfg.hold_e_seconds)
         menu, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: (0, 0) if screens.classify(im) == "collection" else None)
         if menu is None:
             raise Stopped("the seller's stall did not open, and the search menu did not open after walking back", img)
         raise SellerLeft("the seller left the server")
-    log.info("timing: stall open %.1f s after the world showed (wait, walk and hold E included)", time.time() - t_world)
+    t_stall = time.time()
+    log.info("timing: stall open %.1f s after the world showed (wait, walk and hold E included)", t_stall - t_world)
     # the stall's X shows before its items and prices have loaded: keep looking a while before calling the item gone
     buy, img, seen = _look_in_stall(hwnd, skin, low, high, cfg.stall_load_seconds)
     log.info("timing: item %s %.1f s after the stall opened", "found" if buy is not None else "not in view",
-             time.time() - t_world)
+             time.time() - t_stall)
     for _ in range(cfg.stall_max_scrolls):  # the item may be further down: a stall lists dearest first
         if buy is not None or (seen and max(seen) < low):
             break  # found, or everything in view is cheaper than the item (shortcut: assumes the stall is sorted high to low, as seen on 3 stalls)

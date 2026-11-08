@@ -223,6 +223,13 @@ def test_a_long_name_misread_a_little_still_counts_but_a_variant_never_does():
     assert not screens._close_name("Nocturne M200", "Nocturne M200 [RGB]")
 
 
+def test_a_name_wrapped_onto_two_lines_is_read_as_a_block():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_options_two_line_name_1900.png")  # 'Prismatica Aurora' / 'ShadowDaggers'
+    assert img is not None and screens.options_is_for(img, "Prismatica Aurora ShadowDaggers")
+    assert not screens.options_is_for(img, "Prismatica Aurora ShadowBlade")
+    assert not screens.options_is_for(img, "Prismatica Aurora ShadowDaggers [RGB]")
+
+
 def test_a_close_name_must_have_the_same_numbers():
     assert not screens._close_name("Hyper Beast M4A1", "Hyper Beast M4A4")
     assert not screens._close_name("Nocturne M210 [Rainbow]", "Nocturne M200 [Rainbow]")

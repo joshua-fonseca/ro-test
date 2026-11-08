@@ -82,7 +82,7 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 ## Run
 
 1. Open the game, go to the trading market, join the smallest server, then go to the Search Menu. Don't type anything or change any filters.
-2. In PowerShell, from the `ro-test` folder:
+2. In PowerShell, from the `ro-test` folder. Always add `--width 1900`: it is the only window size the scanner is reliable at so far (other sizes, such as 1700, are not supported yet). It needs a screen 1920 px wide.
 
 ```powershell
 # scan only (read-only: nothing is bought). Reads targets.csv
@@ -106,7 +106,7 @@ Commonly used flags:
 |---|---|
 | `--snipe` | on the first match: Teleport, buy from the seller's stall, relist your own stall, stop |
 | `--dry-run` | with `--snipe`: everything except the buy (the confirm box is cancelled). Reads `dry_targets.csv` instead of `targets.csv` |
-| `--width N` / `--height N` | first resize every game window so the game area is N px wide / high (16:9). Run it once per session. 1900 works on a 1920x1200 screen |
+| `--width N` / `--height N` | first resize every game window so the game area is N px wide / high (16:9). Run it once per session. Use 1900: the only size that is reliable so far |
 
 Less used options:
 

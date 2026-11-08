@@ -77,7 +77,7 @@ def test_each_snipe_button_shows_only_on_its_own_screen():
 
 
 def test_a_stop_keeps_the_screen_it_gave_up_on(monkeypatch):
-    _, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)  # still in the world: no stall, and no "E Open" prompt after walking back
+    _, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)  # still in the world: no stall, and no "E Search" prompt after walking back
     with pytest.raises(snipe.Stopped) as e:
         run()
     assert e.value.img is not None and "stall did not open" in str(e.value)
@@ -124,6 +124,13 @@ def test_the_stall_finder_on_a_live_stall_at_1890_wide():
     img = shot("stall_1890")  # Nya Reaper and Blackhole Glove both at 13,000; Noire Nya Reaper at 12,000
     assert screens.find_stall_buy(img, "Nya Reaper", 13000, 13000) == (574, 397)
     assert screens.find_stall_buy(img, "Noire Nya Reaper", 13000, 13000) is None
+
+
+def test_a_stall_with_every_item_at_the_same_price_finds_the_right_tile():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_stall_all_same_price_1900.png")  # 14 items, all 9,000
+    assert img is not None
+    assert screens.find_stall_buy(img, "Nocturne Marlin [Rainbow]", 9000, 9000) == (582, 676)
+    assert screens.find_stall_buy(img, "Nya Reaper", 9000, 9000) is None
 
 
 def test_a_longer_name_that_ends_the_same_is_not_the_item():
@@ -293,20 +300,23 @@ def test_a_seller_who_left_means_walking_back_and_opening_the_search_menu(monkey
     done, run = _flow(monkeypatch, [6, 6, prompt, collection], "Nya Reaper", 15)  # the map centre: no stall; the prompt; the menu
     with pytest.raises(snipe.SellerLeft):
         run()
-    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "S", "E"]  # then S for 1.75 s and E to open the menu
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "W", "E"]  # then W for 1 s and E to open the menu
     assert not [d for d in done if d[0] == "click"]
 
 
 def test_no_open_prompt_after_walking_back_means_no_e_is_held(monkeypatch):
     done, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)
-    with pytest.raises(snipe.Stopped, match="no 'E Open' prompt"):
+    with pytest.raises(snipe.Stopped, match="no 'E Search' prompt"):
         run()
-    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "S"]  # the second E was never sent
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "W"]  # the second E was never sent
 
 
 def test_the_open_prompt_is_found_on_its_screen_and_not_on_others():
     prompt = cv2.imread("sniper_arena_scanner_handoff/live_open_prompt_1691.png")
     x, y = screens.find_open_prompt(prompt)
     assert abs(x - 657) < 15 and abs(y - 649) < 15
-    for name in ("live_map_centre_no_prompt_1693", "live_collection", "live_options_1700", "live_no_listings_dark_1700"):
+    new_lobby = cv2.imread("sniper_arena_scanner_handoff/live_search_prompt_new_lobby.png")  # "E Search", after W for 1 s
+    x, y = screens.find_open_prompt(new_lobby)
+    assert abs(x - 735) < 15 and abs(y - 650) < 15
+    for name in ("live_new_lobby_server_list_prompt", "live_map_centre_no_prompt_1693", "live_collection", "live_options_1700", "live_no_listings_dark_1700"):
         assert screens.find_open_prompt(cv2.imread(f"sniper_arena_scanner_handoff/{name}.png")) is None

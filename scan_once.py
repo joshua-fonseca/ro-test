@@ -133,6 +133,7 @@ def _view(img: np.ndarray):
     if not boxes:
         return None
     l, t, r, b = boxes[0][0], boxes[0][1], boxes[-1][2], boxes[-1][3]
+    l += int(0.68 * (r - l))  # prices and Teleport buttons only: seller names load in and rainbow frames animate (as _relocate)
     return boxes, cv2.resize(cv2.cvtColor(img[t:b, l:r], cv2.COLOR_BGR2GRAY), (160, 80),
                              interpolation=cv2.INTER_AREA).astype(int)
 
@@ -373,7 +374,7 @@ SELLER_LEFT = 11  # _snipe's result when the seller had left: back at the search
 TELEPORTED = 10  # _run_once's exit code once --snipe clicked Teleport (and ran the steps after it): the caller stops
 
 
-def _teleport(hwnd: int, shown: np.ndarray, card) -> tuple[bool, str]:
+def _teleport(hwnd: int, shown: np.ndarray, card, probe: Path | None = None) -> tuple[bool, str]:
     """--snipe: click Teleport on the matched card, but only if the list still looks exactly as it did when the card
     was read (nothing scrolled or covered it) and the spot is a green Teleport button. (clicked, why not)."""
     from scanner.windows import navigate, screen
@@ -382,6 +383,9 @@ def _teleport(hwnd: int, shown: np.ndarray, card) -> tuple[bool, str]:
         return False, "Roblox lost focus"
     a, b = _view(now), _view(shown)
     if a is None or b is None or not _same(a, b):
+        if probe:  # to check later what changed
+            _save_later(probe / "teleport_refused_before.png", shown)
+            _save_later(probe / "teleport_refused_after.png", now)
         return False, "the list moved since the match was read"
     point = screens.find_teleport(now, card)
     if point is None:
@@ -400,13 +404,13 @@ def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing) 
     from scanner.windows import snipe as flow
     probe = out / "probe"
     probe.mkdir(parents=True, exist_ok=True)
-    for old in probe.glob("snipe_*.png"):  # only this snipe's step screens are kept
+    for old in [*probe.glob("snipe_*.png"), *probe.glob("teleport_refused*.png")]:  # only this snipe's screens are kept
         old.unlink()
     for attempt in range(1 + cfg.teleport_retries):
         if attempt:
             time.sleep(1)  # after Ok: let the list settle before checking it still shows the listing
         t = time.perf_counter()
-        teleported, why = _teleport(hwnd, shown, card)
+        teleported, why = _teleport(hwnd, shown, card, probe)
         log.info("timing: checking and clicking Teleport took %.2f s", time.perf_counter() - t)
         print("Teleport clicked." if teleported else f"Teleport not clicked: {why}. Going on with the next skin.")
         if not teleported:

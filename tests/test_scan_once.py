@@ -449,7 +449,7 @@ def test_a_full_server_is_tried_again_on_the_same_listing_then_the_next_skin(mon
     from scanner.logic.config import Config
     from scanner.windows import snipe as flow
     tries, still_listed = [], iter([True, True, False])
-    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card: (next(still_listed), "the list moved"))
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (next(still_listed), "the list moved"))
 
     def full(*a):
         tries.append(1)
@@ -460,7 +460,7 @@ def test_a_full_server_is_tried_again_on_the_same_listing_then_the_next_skin(mon
     assert scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing) == 0
     assert len(tries) == 2  # tried twice; on the third look the listing was gone: next skin
     still_listed = iter([True] * 9)
-    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card: (next(still_listed), ""))
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (next(still_listed), ""))
     tries.clear()
     assert scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing) == 0
     assert len(tries) == 4  # the first try and 3 retries, then next skin
@@ -524,7 +524,7 @@ def test_a_list_that_closes_while_the_hidden_first_card_is_waited_out_stops_the_
 def test_a_seller_who_left_sends_the_scan_on_with_a_fresh_search(monkeypatch, tmp_path):
     from scanner.logic.config import Config
     from scanner.windows import snipe as flow
-    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card: (True, ""))
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (True, ""))
 
     def gone(*a):
         raise flow.SellerLeft("the seller left the server")

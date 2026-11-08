@@ -146,8 +146,8 @@ def button_colour(a: np.ndarray, red: bool = False) -> np.ndarray:
 
 
 def find_open_prompt(img: np.ndarray) -> Point | None:
-    """Centre of the in-game "E Open" prompt (a dark rounded box with a grey key circle and the word Open), or None.
-    Roblox draws it near whatever E would open: the stall booth, the Search terminal. Colour and shape only."""
+    """Centre of an in-game E prompt ("E Open" at a stall, "E Search" at the Search terminal: a dark rounded box with a
+    grey key circle), or None. Roblox draws it near whatever E would open. Colour and shape only: the word is not read."""
     h, w = img.shape[:2]
     dark = cv2.morphologyEx((img.max(2) < 60).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((25, 25), np.uint8))
     for s, _ in _components(dark, int(0.003 * w * h)):
@@ -333,9 +333,14 @@ def _options_label_reads(img: np.ndarray, box: tuple[int, int, int, int]):
     if not len(rows):
         return
     t = y + int(rows.min())
-    label = img[t + int(0.82 * side):t + int(0.98 * side), x + left + int(0.03 * side):x + right - int(0.03 * side)]
+    x0, x1 = x + left + int(0.03 * side), x + right - int(0.03 * side)
+    label = img[t + int(0.82 * side):t + int(0.98 * side), x0:x1]
     for threshold in (170, 200, 230):
         yield pytesseract.image_to_string(_white(label, threshold), config="--psm 7")
+    # A long name wraps onto two lines ('Prismatica Aurora' / 'ShadowDaggers'): read the lines as a block, joined
+    two = img[t + int(0.78 * side):t + int(0.99 * side), x0:x1]
+    for threshold in (170, 150, 190):
+        yield pytesseract.image_to_string(_white(two, threshold), config="--psm 6").replace("\n", " ")
 
 
 def find_category_button(img: np.ndarray, category: str) -> Point | None:
@@ -411,15 +416,17 @@ def find_stall_buy(img: np.ndarray, name: str, low: int, high: int, seen: list |
     prices = vision._ocr_all([_white(img[y:y + bh, x:x + int(0.62 * bw)]) for x, y, bw, bh in buttons], "0123456789,")
     if seen is not None:
         seen.extend(int(t.replace(",", "")) for t in prices if t.replace(",", "").isdigit())
-    for (x, y, bw, bh), text in zip(buttons, prices):
-        digits = text.replace(",", "")
-        if not digits.isdigit() or not low <= int(digits) <= high:
-            continue
-        tile = img[max(0, y - int(0.155 * h)):y - int(0.004 * h), x:x + bw]
-        labels = (pytesseract.image_to_string(_white(tile[int(band * tile.shape[0]):], t), config="--psm 6")
-                  for band in (0.62, 0.75) for t in (200, 230))  # lazy: stops at the first read that is the name
-        if any(is_name(label) for label in labels):
-            return x + bw // 2, y + bh // 2
+    hits = [(x, y, bw, bh) for (x, y, bw, bh), text in zip(buttons, prices)
+            if text.replace(",", "").isdigit() and low <= int(text.replace(",", "")) <= high]
+    tiles = [img[max(0, y - int(0.155 * h)):y - int(0.004 * h), x:x + bw] for x, y, bw, bh in hits]
+    # One crop of every tile at once (a stall can price every item the same: 14 tiles read one by one took 5 s); the
+    # next crop only if no tile read as the name. The first tile in order whose name reads is the one
+    for band, t in ((0.62, 200), (0.62, 230), (0.75, 200), (0.75, 230)):
+        crops = [_white(tile[int(band * tile.shape[0]):], t) for tile in tiles]
+        labels = vision._pool.map(lambda im: pytesseract.image_to_string(im, config="--psm 6"), crops)
+        for (x, y, bw, bh), label in zip(hits, labels):
+            if is_name(label):
+                return x + bw // 2, y + bh // 2
     return None
 
 
