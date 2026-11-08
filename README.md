@@ -145,20 +145,45 @@ counts). Unknown keys are ignored.
 
 ## Discord messages (optional)
 
-The scanner can post to a Discord channel when it finds a weapon, **once it knows what became of it**: bought, gone
-from the stall, the seller left, a stop that needs you, and so on. Leave the settings below empty and nothing is sent.
-With a scan only (no `--snipe`) the message is the match on its own.
+The scanner can post in a Discord channel when it finds a weapon, **after it knows what became of it**: bought, gone from the stall, the seller left, or a stop that needs you. Leave the Discord settings empty and nothing is sent. With a scan only (no `--snipe`) the message is the match on its own. A `--dry-run` sends messages too (the status says "Dry run").
 
-1. Make a bot at https://discord.com/developers/applications (New Application, Bot, Reset Token) and invite it to your server (OAuth2, URL Generator, scope `bot`, permissions View Channel, Send Messages, Attach Files).
-2. Put the server and channel names in `config.json` (`discord_send` is `"text"` for the match line or `"picture"` for the card's picture; the status follows either):
+You need a Discord server where you can add bots (your own server is fine). Do steps 1-4 once.
+
+**1. Make the bot**
+1. Go to https://discord.com/developers/applications and log in.
+2. Click **New Application**, give it a name, and accept.
+3. In the left menu click **Bot**. Click **Reset Token**, then **Copy**. This is the token: keep it private and don't paste it anywhere public (anyone with it controls your bot). You can click Reset Token again any time to get a new one.
+
+**2. Add the bot to your server**
+1. In the left menu click **OAuth2**, then find **URL Generator**.
+2. Under Scopes tick **bot**.
+3. Under Bot Permissions tick **View Channels**, **Send Messages** and **Attach Files**.
+4. Copy the link at the bottom, open it in your browser, pick your server and click **Authorize**. The bot now shows in the server's member list (offline is fine).
+
+**3. Pick the channel**
+Make a text channel for the alerts (for example `sniper-alerts`). If the channel is private, add the bot to it (channel settings, Permissions, add the bot's name) with View Channel, Send Messages and Attach Files allowed.
+
+**4. Tell the scanner where to post.** Make `config.json` next to `main.py` (copy this, then change the names):
 
 ```json
 {"discord_server": "My Server", "discord_channel": "sniper-alerts", "discord_send": "picture"}
 ```
 
-3. Give PowerShell the bot token. The token is never saved in a project file: it is read from the `DISCORD_BOT_TOKEN` environment variable. For the current window only: `$env:DISCORD_BOT_TOKEN = "your token"`. To keep it for every new window: `setx DISCORD_BOT_TOKEN "your token"` (then open a new PowerShell).
+- `discord_server`: the server's name exactly as shown in Discord (capital letters don't matter).
+- `discord_channel`: the channel's name without the `#` (capital letters don't matter, and a space counts as `-`).
+- `discord_send`: `"text"` sends the match line, `"picture"` sends the picture of the card. The status follows either way. If left out it is `"text"`.
 
-A message looks like `[SECRET] [Prismatica Aurora ShadowDaggers] [#345] [6,000] [output/screenshots/matches/...png]` followed by `Bought the item, then put your stall up again.`, or `The item was gone from the stall; nothing bought, then put your stall up again.`, or `the seller left the server; walked back and opened the search menu. Nothing bought. Going on.` If a message can't be sent, one line says why and the scan goes on.
+**5. Give PowerShell the token, each time you start (or keep it).** The token is never saved in a project file; the scanner reads it from the `DISCORD_BOT_TOKEN` environment variable.
+- For the current PowerShell window only: `$env:DISCORD_BOT_TOKEN = "paste the token here"`, then run the scanner from the same window.
+- To keep it for every new window: `setx DISCORD_BOT_TOKEN "paste the token here"`, then close PowerShell and open a new one.
+
+**6. Check it works.** Run `main.py --snipe --dry-run --width 1900` with a skin that has a listing. A message should show up in the channel after the dry run ends. If not, the console prints one line saying why:
+- `the DISCORD_BOT_TOKEN environment variable is not set`: do step 5 in the same window you run the scanner from.
+- `the bot is not in a server called ...`: check `discord_server` is spelled like the server's name, and that step 2 was done.
+- `no text channel called ...`: check `discord_channel`, and that the bot can see the channel (step 3).
+- `Discord said 401`: the token is wrong; reset it and copy it again. `Discord said 403`: the bot is missing a permission in that channel.
+
+A message looks like `[SECRET] [Prismatica Aurora ShadowDaggers] [#345] [6,000] [output/screenshots/matches/...png]` followed by `Bought the item, then put your stall up again.`, or `The item was gone from the stall; nothing bought, then put your stall up again.`, or `the seller left the server; walked back and opened the search menu. Nothing bought. Going on.` If a message can't be sent, one line says why and the scan carries on.
 
 ## Develop and test (WSL or Linux)
 
