@@ -375,6 +375,7 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
 
 
 SELLER_LEFT = 11  # _snipe's result when the seller had left: back at the search menu, the scan goes on
+SNIPE_STOPPED = 12  # like TELEPORTED, but the steps after Teleport stopped part way: the caller stops too
 TELEPORTED = 10  # _run_once's exit code once --snipe clicked Teleport (and ran the steps after it): the caller stops
 
 
@@ -441,9 +442,11 @@ def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing, 
             if e.img is not None:  # diagnostics: the screen the flow gave up on
                 cv2.imwrite(str(probe / "snipe_stopped.png"), e.img)
                 print(f"The screen it stopped on: {probe / 'snipe_stopped.png'}")
+            return SNIPE_STOPPED
         except Exception:  # Teleport went through: whatever broke, never go back to scanning on the new server
             log.exception("the snipe flow crashed after Teleport")
             report("Snipe stopped: the flow crashed after Teleport (see run.log). Nothing more was sent; take over from here.")
+            return SNIPE_STOPPED
         return TELEPORTED
     return 0
 
@@ -542,8 +545,8 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
             result = _snipe(hwnd, cfg, out, target, *r["match"],
                             report=lambda text: (print(text), discord.notify(cfg, line, text)))  # notify never raises
             teleported = bool(result)  # on a new server: the results list is not there to close
-            if result == TELEPORTED:
-                return TELEPORTED, navigated
+            if result in (TELEPORTED, SNIPE_STOPPED):
+                return result, navigated
             if result == SELLER_LEFT:
                 return 0, False  # the search menu is fresh: the next scan searches again from scratch
         return (0 if r["status"] in ("complete", "stopped_at_price", "stopped_at_first_match") else 1), navigated

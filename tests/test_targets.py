@@ -23,13 +23,13 @@ def test_loads_valid_rows_and_blank_means_none(tmp_path):
 def test_any_case_and_the_short_forms_scrt_ltd_t_f_are_accepted(tmp_path):
     p = tmp_path / "targets.csv"
     p.write_text("Skin_Name,CATEGORY,Rarity,max_price,max_serial,ENABLED\n"
-                 "A,sniper,SCRT,100,,T\nB,KNIFE,ltd,100,,f\nC,Knife,Secret,100,,True\nD,Sniper,LIMITED,100,,FALSE\n")
+                 "A,sniper,SCRT,100,,T\nB,KNIFE,ltd,100,,f\nC,Knife,Secret,100,,True\nD,Sniper,LIMITED,100,,FALSE\nE,glove,scrt,100,,t\n")
     assert [(t.category, t.rarity, t.enabled) for t in load_targets(str(p))] == [
-        ("Sniper", "Secret", True), ("Knife", "Limited", False), ("Knife", "Secret", True), ("Sniper", "Limited", False)]
+        ("Sniper", "Secret", True), ("Knife", "Limited", False), ("Knife", "Secret", True), ("Sniper", "Limited", False), ("Glove", "Secret", True)]
 
 
 def test_invalid_rows_are_skipped_with_warning(tmp_path, caplog):
-    path = write(tmp_path, "A,Glove,Secret,1,,true\n"        # bad category
+    path = write(tmp_path, "A,Charm,Secret,1,,true\n"        # bad category
                            "B,Sniper,Rare,1,,true\n"          # bad rarity
                            "C,Sniper,Secret,abc,,true\n"      # bad price
                            "D,Sniper,Secret,-1,,true\n"       # negative price

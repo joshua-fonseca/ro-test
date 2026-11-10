@@ -72,7 +72,7 @@ Wild Fiend Crossbow,Sniper,Limited,15,,true
 Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 ```
 
-- `category` is `Sniper` or `Knife`.
+- `category` is `Sniper`, `Knife` or `Glove`.
 - `rarity` is `Secret` (or `scrt`) or `Limited` (or `ltd`); the scanner clicks that filter first.
 - Capital letters don't matter anywhere (`SCRT`, `Ltd`, `sniper` all work, and so do the column names in the first line).
 - `max_serial` can be empty.
@@ -145,7 +145,13 @@ counts). Unknown keys are ignored.
 
 ## Discord messages (optional)
 
-The scanner can post in a Discord channel when it finds a weapon, **after it knows what became of it**: bought, gone from the stall, the seller left, or a stop that needs you. Leave the Discord settings empty and nothing is sent. With a scan only (no `--snipe`) the message is the match on its own. A `--dry-run` sends messages too (the status says "Dry run").
+Each time you start `main.py`, the scanner posts **one new message** in a Discord channel and keeps editing it as the run goes on:
+
+- when the run started, e.g. `Run started 19:22, Nov 11 2026 (--snipe)`,
+- each weapon found and what became of it: bought, gone from the stall, the seller left, a stop that needs you, and so on,
+- how the run ended: `Run ended: finished, the stall is up again.` after a snipe that went through, or `Run ended early: ...` with the reason (the snipe stopped part way, scans kept failing, Ctrl+C...), with the time, and `No match found.` if nothing was found.
+
+Leave the Discord settings empty and nothing is sent. A `--dry-run` posts too (its first line says `--snipe --dry-run`).
 
 You need a Discord server where you can add bots (your own server is fine). Do steps 1-4 once.
 
@@ -177,13 +183,22 @@ Make a text channel for the alerts (for example `sniper-alerts`). If the channel
 - For the current PowerShell window only: `$env:DISCORD_BOT_TOKEN = "paste the token here"`, then run the scanner from the same window.
 - To keep it for every new window: `setx DISCORD_BOT_TOKEN "paste the token here"`, then close PowerShell and open a new one.
 
-**6. Check it works.** Run `main.py --snipe --dry-run --width 1900` with a skin that has a listing. A message should show up in the channel after the dry run ends. If not, the console prints one line saying why:
+**6. Check it works.** Run `main.py --snipe --dry-run --width 1900` with a skin that has a listing. A message should show up in the channel as soon as you click the game window, and be edited as the run goes on. If not, the console prints one line saying why:
 - `the DISCORD_BOT_TOKEN environment variable is not set`: do step 5 in the same window you run the scanner from.
 - `the bot is not in a server called ...`: check `discord_server` is spelled like the server's name, and that step 2 was done.
 - `no text channel called ...`: check `discord_channel`, and that the bot can see the channel (step 3).
 - `Discord said 401`: the token is wrong; reset it and copy it again. `Discord said 403`: the bot is missing a permission in that channel.
 
-A message looks like `[SECRET] [Prismatica Aurora ShadowDaggers] [#345] [6,000] [output/screenshots/matches/...png]` followed by `Bought the item, then put your stall up again.`, or `The item was gone from the stall; nothing bought, then put your stall up again.`, or `the seller left the server; walked back and opened the search menu. Nothing bought. Going on.` If a message can't be sent, one line says why and the scan carries on.
+A message looks like this (with `"discord_send": "text"`; with `"picture"` each card's picture is attached and the line has no file path):
+
+```
+Run started 19:22, Nov 11 2026 (--snipe)
+[SECRET] [Prismatica Aurora ShadowDaggers] [#345] [6,000] [output/screenshots/matches/...png]
+Bought the item, then put your stall up again.
+Run ended: finished, the stall is up again. (19:23, Nov 11 2026)
+```
+
+If the message can't be sent or edited, one line in the console says why and the scan carries on.
 
 ## Develop and test (WSL or Linux)
 

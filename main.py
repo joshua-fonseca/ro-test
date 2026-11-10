@@ -39,6 +39,7 @@ import time
 from pathlib import Path
 
 import scan_once
+from scanner.logic import discord
 from scanner.logic.config import load_config
 from scanner.logic.models import load_targets
 from scanner.logic.storage import clear_matches, setup_run_log
@@ -120,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
         time.sleep(0.5)
     out = Path(cfg.output_dir)
     setup_run_log(out)
+    discord.start(cfg, f"Run started {discord.stamp()} ("
+                  + ("--snipe --dry-run" if a.dry_run else "--snipe" if a.snipe else "scan only") + ")")
+    ended = "Run ended early: the program crashed (see output/run.log)."
     searched, failures = None, 0  # searched: the skin whose search text is still in the box
     picked = None  # (category, rarity) the buttons were last set to by a good scan
     passes = 0
@@ -129,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             targets = [t for t in load_targets(cfg.targets_path) if t.enabled and t.max_price is not None]
             if not targets:
                 print(f"No enabled skin with a max_price in {cfg.targets_path}")
+                ended = f"Run ended early: no enabled skin with a max_price in {cfg.targets_path}."
                 return 2
             for target in targets:
                 _wait_for_focus(hwnd, screen)  # pause here while you are in another window
@@ -140,7 +145,12 @@ def main(argv: list[str] | None = None) -> int:
                     code, ok = 1, False
                 if code == scan_once.TELEPORTED:
                     print(f"Teleported for {target.skin_name}. Stopping the loop: it is your turn.")
+                    ended = "Run ended: finished, the stall is up again."
                     return 0
+                if code == scan_once.SNIPE_STOPPED:
+                    print(f"Teleported for {target.skin_name}, but the steps after it stopped. Stopping the loop: take over.")
+                    ended = "Run ended early: the snipe stopped part way; take over in the game."
+                    return 1
                 searched = target.skin_name if ok and not code else None  # after a failure, search again
                 picked = (target.category, target.rarity) if ok and not code else None  # and click the buttons again
                 if code and not screen.is_focused(hwnd):  # focus was lost mid-scan: not a failed screen
@@ -150,12 +160,17 @@ def main(argv: list[str] | None = None) -> int:
                     navigate.back_to_collection(hwnd)  # leave no dialog open before the next try
                 if failures >= MAX_FAILURES:
                     print(f"{failures} scans failed in a row; stopping. Check the screen and start again.")
+                    ended = f"Run ended early: {failures} scans failed in a row."
                     return 1
             print(f"Loop {passes} done" + (", trying again" if not a.cycles or passes < a.cycles else ""))
+        ended = f"Run ended after {passes} pass(es)."
         return 0
     except KeyboardInterrupt:
         print("Stopped (Ctrl+C).")
+        ended = "Run ended early: stopped with Ctrl+C."
         return 130
+    finally:
+        discord.finish(cfg, ended)
 
 
 if __name__ == "__main__":

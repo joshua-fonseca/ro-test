@@ -6,7 +6,7 @@ from dataclasses import dataclass
 log = logging.getLogger(__name__)
 
 # What may be typed in the csv (any case) -> the name the rest of the program uses
-CATEGORIES = {"sniper": "Sniper", "knife": "Knife"}
+CATEGORIES = {"sniper": "Sniper", "knife": "Knife", "glove": "Glove"}
 RARITIES = {"secret": "Secret", "scrt": "Secret", "limited": "Limited", "ltd": "Limited"}
 BOOLEANS = {"true": True, "t": True, "false": False, "f": False}
 

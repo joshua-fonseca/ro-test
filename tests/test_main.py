@@ -182,3 +182,19 @@ def test_a_dry_run_without_dry_targets_csv_stops_before_touching_anything(monkey
     calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [(0, True)])
     assert main.main(["--snipe", "--dry-run"]) == 2
     assert "dry_targets.csv not found" in capsys.readouterr().out and calls == []
+
+
+@pytest.mark.parametrize("results, code, ended", [
+    ([(scan_once.TELEPORTED, True)], 0, "Run ended: finished, the stall is up again."),
+    ([(scan_once.SNIPE_STOPPED, True)], 1, "Run ended early: the snipe stopped part way"),
+    ([(1, False)] * 3, 1, "Run ended early: 3 scans failed in a row."),
+    ([], 130, "Run ended early: stopped with Ctrl+C."),
+])
+def test_the_discord_message_is_started_once_and_ends_with_how_the_run_ended(monkeypatch, tmp_path, results, code, ended):
+    _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", results)
+    said = []
+    monkeypatch.setattr(main.discord, "start", lambda cfg, title: said.append(("start", title)))
+    monkeypatch.setattr(main.discord, "finish", lambda cfg, how: said.append(("finish", how)))
+    assert main.main(["--snipe"] if results and results[0][0] != 1 else []) == code
+    assert said[0][0] == "start" and said[0][1].startswith("Run started ") and len(said) == 2
+    assert said[1][0] == "finish" and said[1][1].startswith(ended)
