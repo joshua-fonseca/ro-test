@@ -143,6 +143,8 @@ def notify(cfg, line: str, status: str = "") -> None:
             Path(shot.group(1)) if picture else None)
 
 
-def finish(cfg, how: str) -> None:
-    """The last line: how the run ended, and the time."""
-    _update(cfg, [f"{how}{'' if _run['found'] else ' No match found.'} ({stamp()})"])
+def finish(cfg, how: str, early: bool = False) -> None:
+    """The last two lines: what happened (plus 'No match found.' after a run that went to its end without one),
+    then 'Run ended: 19:23, Nov 11 2026' ('Run ended early: ...' when `early`)."""
+    note = "" if early or _run["found"] else " No match found."
+    _update(cfg, [how + note, f"Run ended{' early' if early else ''}: {stamp()}"])

@@ -63,20 +63,24 @@ def test_one_message_per_run_edited_with_each_outcome_and_the_end(api):
     discord.start(CFG, "Run started 19:22, Nov 11 2026 (--snipe)")
     discord.notify(CFG, LINE, "the seller left the server; walked back. Nothing bought. Going on.")
     discord.notify(CFG, LINE, "Bought the item, then put your stall up again.")
-    discord.finish(CFG, "Run ended: finished, the stall is up again.")
+    discord.finish(CFG, "Finished: the stall is up again.")
     calls = sent(api)
     assert [(m, p) for m, p, _ in calls] == [("POST", "/channels/8/messages")] + [("PATCH", "/channels/8/messages/55")] * 3
     last = calls[-1][2]["content"].split("\n")
     assert last[0] == "Run started 19:22, Nov 11 2026 (--snipe)" and last[1:5] == [
         LINE, "the seller left the server; walked back. Nothing bought. Going on.",
         LINE, "Bought the item, then put your stall up again."]
-    assert last[5].startswith("Run ended: finished, the stall is up again. (") and "No match" not in last[5]
+    assert last[5] == "Finished: the stall is up again." and last[6].startswith("Run ended: ")
 
 
 def test_a_run_with_no_match_says_so_and_a_new_run_is_a_new_message(api):
     discord.start(CFG, "Run started")
-    discord.finish(CFG, "Run ended after 1 pass(es).")
-    assert "No match found." in sent(api)[-1][2]["content"]
+    discord.finish(CFG, "Finished 1 pass(es).")
+    assert sent(api)[-1][2]["content"].split("\n")[1:] == ["Finished 1 pass(es). No match found.",
+                                                          f"Run ended: {discord.stamp()}"]
+    discord.start(CFG, "Run started")
+    discord.finish(CFG, "Stopped with Ctrl+C.", early=True)
+    assert sent(api)[-1][2]["content"].split("\n")[1:] == ["Stopped with Ctrl+C.", f"Run ended early: {discord.stamp()}"]
     discord.start(CFG, "Run started again")
     assert sent(api)[-1][0] == "POST"
 

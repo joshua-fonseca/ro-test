@@ -82,7 +82,10 @@ Nocturne M200 [Rainbow],Sniper,Secret,7500,,false
 
 ## Run
 
-1. Open the game, go to the trading market, join the smallest server, then go to the Search Menu. Don't type anything or change any filters.
+1. Prerequisites
+   - Open the game, go to the trading market, join the smallest server, then go to the Search Menu. Don't type anything or change any filters.
+   - Equip a tradeable weapon and star (favourite) it. It must be the first weapon in your inventory: the bot clicks that spot.
+   - Have an item at an unreasonably high price in your stall, so the prompts to set the stall up again with your previous items are there for the bot to click.
 2. In PowerShell, from the `ro-test` folder. Always add `--width 1900`: it is the only window size the scanner is reliable at so far (other sizes, such as 1700, are not supported yet). It needs a screen 1920 px wide.
 
 ```powershell
@@ -149,7 +152,7 @@ Each time you start `main.py`, the scanner posts **one new message** in a Discor
 
 - when the run started, e.g. `Run started 19:22, Nov 11 2026 (--snipe)`,
 - each weapon found and what became of it: bought, gone from the stall, the seller left, a stop that needs you, and so on,
-- how the run ended: `Run ended: finished, the stall is up again.` after a snipe that went through, or `Run ended early: ...` with the reason (the snipe stopped part way, scans kept failing, Ctrl+C...), with the time, and `No match found.` if nothing was found.
+- what ended the run on its own line (`Finished: the stall is up again.`, `Stopped with Ctrl+C.`, `3 scans failed in a row.`...; `No match found.` is added when a run that went to its end found nothing), then `Run ended: <time>`, or `Run ended early: <time>` when it was cut short.
 
 Leave the Discord settings empty and nothing is sent. A `--dry-run` posts too (its first line says `--snipe --dry-run`).
 
@@ -195,7 +198,8 @@ A message looks like this (with `"discord_send": "text"`; with `"picture"` each 
 Run started 19:22, Nov 11 2026 (--snipe)
 [SECRET] [Prismatica Aurora ShadowDaggers] [#345] [6,000] [output/screenshots/matches/...png]
 Bought the item, then put your stall up again.
-Run ended: finished, the stall is up again. (19:23, Nov 11 2026)
+Finished: the stall is up again.
+Run ended: 19:23, Nov 11 2026
 ```
 
 If the message can't be sent or edited, one line in the console says why and the scan carries on.
