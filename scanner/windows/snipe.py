@@ -188,7 +188,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
         if img is not None:
             if _mostly_black(img):
                 seen_black = True
-            elif seen_black:
+            elif seen_black and img.std() >= 5:  # one flat colour (the grey of a reconnect) is not the world yet
                 break
         # shortcut: 15 s is a guess at the longest wait for a teleport to start; raise it if real ones are missed
         if not seen_black and img is not None and time.time() > start + 15:

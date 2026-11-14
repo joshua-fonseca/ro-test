@@ -319,9 +319,27 @@ def test_one_tile_under_a_search_box_that_reads_the_skin_needs_no_label(monkeypa
     w = World(monkeypatch, label_ok=False)  # the label never reads (white on bright rainbow)
     monkeypatch.setattr(navigate, "_has_tile", lambda img, point: False)  # no second tile
     monkeypatch.setattr(navigate.screens, "search_reads", lambda img, name: name == "Prismatica Frostbite ShadowDaggers")
+    monkeypatch.setattr(navigate.screens, "collected_total", lambda img: 1)
+    monkeypatch.setattr(navigate, "_settled", lambda hwnd, img: img)
     img, why = navigate.open_results(1, "Prismatica Frostbite ShadowDaggers")
     assert img is not None and why == "" and len(w.clicks) == 2  # tile and check, nothing closed
 
+
+
+@pytest.mark.parametrize("count, settled_tiles, opened", [(1, 1, True), (6, 1, False), (1, 2, False)])
+def test_one_tile_is_believed_only_on_a_settled_grid_that_the_game_counts_as_one(monkeypatch, count, settled_tiles, opened):
+    monkeypatch.setattr(navigate, "_slot", {})
+    w = World(monkeypatch, label_ok=False)  # the label never reads
+    tiles = {"n": 1}
+    monkeypatch.setattr(navigate, "_has_tile", lambda img, point: point[0] < 150 or tiles["n"] > 1)
+    def settled(hwnd, img):  # the grid finishes drawing
+        tiles["n"] = settled_tiles
+        return img
+    monkeypatch.setattr(navigate, "_settled", settled)
+    monkeypatch.setattr(navigate.screens, "search_reads", lambda img, name: True)
+    monkeypatch.setattr(navigate.screens, "collected_total", lambda img: count)
+    img, why = navigate.open_results(1, "Prismatica ShadowDaggers")
+    assert (img is not None) is opened
 
 def test_a_remembered_tile_that_is_gone_is_forgotten_and_the_first_tile_is_tried(monkeypatch):
     monkeypatch.setattr(navigate, "_slot", {"Nya Machete": 1})  # the second variant was here last time

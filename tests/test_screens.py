@@ -252,3 +252,11 @@ def test_the_cursor_after_the_search_text_is_ignored(monkeypatch, read, ok):
     monkeypatch.setattr(screens.pytesseract, "image_to_string", lambda *a, **k: read + "\n")
     import numpy as np
     assert screens.search_reads(np.zeros((20, 20, 3), np.uint8), "Prismatica Frostbite ShadowDaggers") is ok
+
+
+
+@pytest.mark.parametrize("path, total", [("sniper_arena_scanner_handoff/live_prismatica_six_grid.png", 6),
+                                         ("sniper_arena_scanner_handoff/live_frostbite_grid_1900.png", 1),
+                                         ("sniper_arena_scanner_handoff/live_nya_machete_grid_1900.png", 3)])
+def test_the_games_count_under_the_grid_is_read(path, total):
+    assert screens.collected_total(load(path)) == total

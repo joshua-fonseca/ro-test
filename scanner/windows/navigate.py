@@ -257,11 +257,12 @@ def _has_tile(img, point) -> bool:
     return a.size > 0 and ((a[..., 2] - np.maximum(a[..., 0], a[..., 1])) > 20).mean() > 0.12
 
 
-def _opened_skin(options, grid, skin: str, alone: bool) -> bool:
-    """True if the Search Options box is for `skin`. The only tile, under a search box that reads exactly the skin, can
-    only be that skin (with a right targets row the skin itself is always in the grid); checked first, as some labels
-    never read (white on bright rainbow: Prismatica Frostbite ShadowDaggers). Otherwise the label decides."""
-    if alone and screens.search_reads(grid, skin):
+def _opened_skin(options, alone_grid, skin: str) -> bool:
+    """True if the Search Options box is for `skin`. `alone_grid`: a settled grid with one tile, or None. The search
+    shows every skin with all the typed words, the skin itself included (with a right targets row), so when the box
+    reads exactly the skin and the game counts 1 skin, that tile is it. Checked first, as some labels never read (white
+    on bright rainbow: Prismatica Frostbite ShadowDaggers). Otherwise the label decides."""
+    if alone_grid is not None and screens.search_reads(alone_grid, skin) and screens.collected_total(alone_grid) == 1:
         return True
     return screens.options_is_for(options, skin)
 
@@ -299,6 +300,14 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     if known and not _has_tile(img, _slot_point(first, known, img)):  # this skin was last found on goes first, if still there
         _slot.pop(skin)
         known = 0
+    # A tile still drawing can look like no tile (seen: 6 tiles judged one, and the [Rainbow] variant taken for the
+    # plain skin): one tile is only believed on a settled grid, then checked against the game's count in _opened_skin
+    alone_grid = None
+    if not _has_tile(img, _slot_point(first, 1, img)):
+        settled = _settled(hwnd, img)
+        if settled is not None and not _has_tile(settled, _slot_point(first, 1, settled)):
+            alone_grid = settled
+            save("grid_alone", settled)  # to trace a wrong skin taken this way
     right_skin = False
     for n, k in enumerate([known] + [k for k in range(6) if k != known]):
         tile = _slot_point(first, k, img)
@@ -318,8 +327,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         if not _click(hwnd, check, img):
             return None, "click not sent (Roblox lost focus, or the window changed size)"
         t_check = time.time()
-        alone = k == 0 and not _has_tile(grid, _slot_point(first, 1, grid))
-        name_read = _name_reader.submit(_opened_skin, img, grid, skin, alone)  # read while the results load
+        name_read = _name_reader.submit(_opened_skin, img, alone_grid if k == 0 else None, skin)  # read while the results load
         results = wait_for(hwnd, "results", 8)
         t_results = time.time()
         right_skin = name_read.result()

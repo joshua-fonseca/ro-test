@@ -186,6 +186,25 @@ def test_an_ignored_click_on_the_stall_x_is_sent_again(monkeypatch):
     assert [d[1] for d in done if d[0] == "click"][:2] == [exit_point, exit_point]
 
 
+def test_a_blank_grey_screen_after_the_loading_screen_does_not_count_as_arrived(monkeypatch):
+    grey = cv2.imread("sniper_arena_scanner_handoff/live_reconnect_blank_grey.png")  # seen live: a reconnect, then "Loading Data"
+    if grey is None:
+        pytest.skip("fixture screenshots missing")
+    grey = cv2.resize(grey, (1322, 743))
+    frames = iter([BLACK, grey, grey, BLACK] + [shot(n) for n in (6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6)])
+    looks = []
+    monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: looks.append(1) or next(frames), raising=False)
+    monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
+    monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: True)
+    held = []
+    monkeypatch.setattr(snipe.controller, "hold_key", lambda hwnd, key, s: held.append(len(looks)) or True)
+    monkeypatch.setattr(snipe.screen, "client_rect", lambda hwnd: (0, 0, 1322, 743), raising=False)
+    monkeypatch.setattr(snipe.controller, "scroll", lambda hwnd, x, y, n: True)
+    _clock(monkeypatch)
+    snipe.after_teleport(1, FAST, "Nya Reaper", 15, 15)
+    assert held[0] == 5  # black, grey, grey, black ("Loading Data"), then the world
+
+
 def test_no_loading_screen_means_the_teleport_did_not_happen(monkeypatch):
     frames = iter([shot(6)] * 100)  # the old screen stays up: no black screen ever
     monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: next(frames), raising=False)

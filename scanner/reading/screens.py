@@ -109,6 +109,15 @@ def search_reads(img: np.ndarray, name: str) -> bool:
     return text == want or (text[:-1] == want and text[-1] in "li")  # the blinking cursor after the text, read as l or I
 
 
+def collected_total(img: np.ndarray) -> int | None:
+    """N from 'Collected: 0 / N' under the skin grid: the game's own count of skins the search and filters show."""
+    h, w = img.shape[:2]
+    text = pytesseract.image_to_string(_white(img[int(0.855 * h):int(0.905 * h), int(0.71 * w):int(0.86 * w)], 170),
+                                       config="--psm 7")
+    m = re.search(r"ollected.*/\s*(\d+)", text)
+    return int(m.group(1)) if m else None
+
+
 def classify(img: np.ndarray) -> str:
     """'options' (Search Options box), 'results' (listing list), 'empty' ("No listings found"), 'collection' (skin grid)
     or 'unknown'.
