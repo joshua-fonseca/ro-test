@@ -257,6 +257,15 @@ def _has_tile(img, point) -> bool:
     return a.size > 0 and ((a[..., 2] - np.maximum(a[..., 0], a[..., 1])) > 20).mean() > 0.12
 
 
+def _opened_skin(options, grid, skin: str, alone: bool) -> bool:
+    """True if the Search Options box is for `skin`. The only tile, under a search box that reads exactly the skin, can
+    only be that skin (with a right targets row the skin itself is always in the grid); checked first, as some labels
+    never read (white on bright rainbow: Prismatica Frostbite ShadowDaggers). Otherwise the label decides."""
+    if alone and screens.search_reads(grid, skin):
+        return True
+    return screens.options_is_for(options, skin)
+
+
 def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     """(results screenshot, '') or (None, why it stopped). save(name, img) keeps diagnostics.
 
@@ -309,7 +318,8 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         if not _click(hwnd, check, img):
             return None, "click not sent (Roblox lost focus, or the window changed size)"
         t_check = time.time()
-        name_read = _name_reader.submit(screens.options_is_for, img, skin)  # read while the results load
+        alone = k == 0 and not _has_tile(grid, _slot_point(first, 1, grid))
+        name_read = _name_reader.submit(_opened_skin, img, grid, skin, alone)  # read while the results load
         results = wait_for(hwnd, "results", 8)
         t_results = time.time()
         right_skin = name_read.result()

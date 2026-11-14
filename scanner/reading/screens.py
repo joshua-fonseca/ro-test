@@ -99,6 +99,16 @@ def search_has_text(img: np.ndarray) -> bool:
     return int((region.min(2) > 200).sum()) > 200
 
 
+def search_reads(img: np.ndarray, name: str) -> bool:
+    """True if the search box holds exactly `name`. Its big white letters read reliably, unlike the small tile labels."""
+    bar = _search_bar(img)
+    if bar is None:
+        return False
+    x, y, w, h = bar
+    text, want = _letters(pytesseract.image_to_string(_white(img[y:y + h, x:x + w]), config="--psm 7")), _letters(name)
+    return text == want or (text[:-1] == want and text[-1] in "li")  # the blinking cursor after the text, read as l or I
+
+
 def classify(img: np.ndarray) -> str:
     """'options' (Search Options box), 'results' (listing list), 'empty' ("No listings found"), 'collection' (skin grid)
     or 'unknown'.

@@ -234,3 +234,21 @@ def test_a_close_name_must_have_the_same_numbers():
     assert not screens._close_name("Hyper Beast M4A1", "Hyper Beast M4A4")
     assert not screens._close_name("Nocturne M210 [Rainbow]", "Nocturne M200 [Rainbow]")
     assert screens._close_name("Nocturne M200 [Ralnbow]", "Nocturne M200 [Rainbow]")  # one letter misread: fine
+
+
+def test_a_label_that_never_reads_is_backed_by_the_search_box():
+    grid = load("sniper_arena_scanner_handoff/live_frostbite_grid_1900.png")  # one tile: the search found one skin
+    options = load("sniper_arena_scanner_handoff/live_frostbite_options_1900.png")
+    assert screens.search_reads(grid, "Prismatica Frostbite ShadowDaggers")
+    assert not screens.search_reads(grid, "Prismatica Aurora ShadowDaggers")
+    assert not screens.options_is_for(options, "Prismatica Frostbite ShadowDaggers")  # white on bright rainbow
+
+
+@pytest.mark.parametrize("read, ok", [("Prismatica Frostbite ShadowDaggers", True), ("Prismatica Frostbite ShadowDaggersl", True),
+                                      ("Prismatica Frostbite ShadowDaggersI", True), ("Prismatica Frostbite ShadowDaggersx", False),
+                                      ("Prismatica Frostbite ShadowDagger", False)])
+def test_the_cursor_after_the_search_text_is_ignored(monkeypatch, read, ok):
+    monkeypatch.setattr(screens, "_search_bar", lambda img: (0, 0, 10, 10))
+    monkeypatch.setattr(screens.pytesseract, "image_to_string", lambda *a, **k: read + "\n")
+    import numpy as np
+    assert screens.search_reads(np.zeros((20, 20, 3), np.uint8), "Prismatica Frostbite ShadowDaggers") is ok

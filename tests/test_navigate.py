@@ -309,8 +309,18 @@ def test_no_tile_in_the_next_slot_ends_the_search_without_more_clicks(monkeypatc
     monkeypatch.setattr(navigate, "_slot", {})
     w = World(monkeypatch, label_ok=False)
     monkeypatch.setattr(navigate, "_has_tile", lambda img, point: False)  # one tile only, and it is the wrong one
+    monkeypatch.setattr(navigate.screens, "search_reads", lambda img, name: False)  # the box holds something else
     img, why = navigate.open_results(1, "Nya Reaper")
     assert img is None and "was not for" in why and len(w.clicks) == 3  # tile, check, close; no second tile tried
+
+
+def test_one_tile_under_a_search_box_that_reads_the_skin_needs_no_label(monkeypatch):
+    monkeypatch.setattr(navigate, "_slot", {})
+    w = World(monkeypatch, label_ok=False)  # the label never reads (white on bright rainbow)
+    monkeypatch.setattr(navigate, "_has_tile", lambda img, point: False)  # no second tile
+    monkeypatch.setattr(navigate.screens, "search_reads", lambda img, name: name == "Prismatica Frostbite ShadowDaggers")
+    img, why = navigate.open_results(1, "Prismatica Frostbite ShadowDaggers")
+    assert img is not None and why == "" and len(w.clicks) == 2  # tile and check, nothing closed
 
 
 def test_a_remembered_tile_that_is_gone_is_forgotten_and_the_first_tile_is_tried(monkeypatch):
