@@ -322,6 +322,62 @@ def test_a_seller_who_left_means_walking_back_and_opening_the_search_menu(monkey
     assert not [d for d in done if d[0] == "click"]
 
 
+def test_a_disconnect_is_reconnected_the_news_box_closed_and_the_search_menu_opened(monkeypatch):
+    fix = {n: cv2.imread(f"sniper_arena_scanner_handoff/{n}.png") for n in (
+        "live_disconnected_1900", "live_reconnect_teleporting_1900", "live_promo_popup_1900",
+        "live_new_lobby_map_centre_1900", "live_collection")}
+    if any(v is None for v in fix.values()):
+        pytest.skip("fixture screenshots missing")
+    news = fix["live_promo_popup_1900"]
+    done, run = _flow(monkeypatch, [fix["live_disconnected_1900"], fix["live_reconnect_teleporting_1900"], news, news,
+                                    news, fix["live_new_lobby_map_centre_1900"], fix["live_collection"]], "Nya Reaper", 15)
+    with pytest.raises(snipe.SellerLeft, match="reconnected"):
+        run()
+    clicks = [d[1] for d in done if d[0] == "click"]
+    assert clicks == [screens.find_reconnect(fix["live_disconnected_1900"]), screens.snipe_button(news, "news_x")]
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "E"]  # straight back to the search terminal: no stall walk
+
+
+def test_reconnect_is_clicked_at_most_3_times(monkeypatch):
+    box = cv2.imread("sniper_arena_scanner_handoff/live_disconnected_1900.png")
+    if box is None:
+        pytest.skip("fixture screenshots missing")
+    done, run = _flow(monkeypatch, [box] * 10, "Nya Reaper", 15)  # the network stays down
+    with pytest.raises(snipe.Stopped, match="still disconnected after 3"):
+        run()
+    assert len([d for d in done if d[0] == "click"]) == 3
+
+
+def test_no_loading_screen_after_reconnect_is_a_stop_not_a_return_to_scanning(monkeypatch):
+    box = cv2.imread("sniper_arena_scanner_handoff/live_disconnected_1900.png")
+    grey = cv2.imread("sniper_arena_scanner_handoff/live_reconnect_blank_grey.png")
+    if box is None or grey is None:
+        pytest.skip("fixture screenshots missing")
+    _flow(monkeypatch, [box] + [grey] * 100, "Nya Reaper", 15)
+    with pytest.raises(snipe.Stopped, match="Reconnect click") as e:  # 15 s of grey, well inside the 60 s limit
+        snipe.after_teleport(1, dataclasses.replace(FAST, teleport_max_seconds=60), "Nya Reaper", 15, 15)
+    assert not isinstance(e.value, snipe.NotTeleported)
+
+
+@pytest.mark.parametrize("text, found", [("Reconnect", True), ("Reconnecl", True), ("Leave", False)])
+def test_reconnect_may_read_one_letter_off_but_leave_never_matches(monkeypatch, text, found):
+    img = cv2.imread("sniper_arena_scanner_handoff/live_disconnected_1900.png")
+    if img is None:
+        pytest.skip("fixture screenshots missing")
+    monkeypatch.setattr(screens.pytesseract, "image_to_string", lambda *a, **k: text + "\n")
+    assert (screens.find_reconnect(img) is not None) is found
+
+
+def test_the_disconnected_box_is_found_only_on_its_reconnect_button():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_disconnected_1900.png")
+    if img is None:
+        pytest.skip("fixture screenshots missing")
+    x, y = screens.find_reconnect(img)
+    assert 953 < x < 1172 and 622 < y < 667  # Reconnect, not Leave (722-940)
+    for other in ("live_promo_popup_1900", "live_new_lobby_map_centre_1900", "live_reconnect_teleporting_1900"):
+        assert screens.find_reconnect(cv2.imread(f"sniper_arena_scanner_handoff/{other}.png")) is None
+
+
 def test_no_search_menu_after_walking_back_is_a_stop(monkeypatch):
     done, run = _flow(monkeypatch, [6, 6, 6], "Nya Reaper", 15)
     with pytest.raises(snipe.Stopped, match="search menu did not open"):

@@ -442,6 +442,7 @@ SNIPE = {
     "inventory": ((0.29, 0.085), "orange_line"), "inventory_all": ((0.404, 0.234), "blue"),
     "sell_on_market": ((0.882, 0.781), "blue"),
     "claim_check": ((0.558, 0.534), "green"), "same_items_check": ((0.559, 0.579), "green"),
+    "news_x": ((0.185, 0.767), "red"),  # the X of the news box ("Vexa Series now available!") shown on joining
 }
 
 
@@ -495,6 +496,23 @@ def find_buy_cancel(img: np.ndarray) -> Point | None:
     if red.sum() < 0.001 * w * h:
         return None
     return x0 + (int(xs.min()) + int(xs.max())) // 2, top + (int(ys.min()) + int(ys.max())) // 2  # box middle: the white X leaves the colour lopsided
+
+
+def find_reconnect(img: np.ndarray) -> Point | None:
+    """Centre of the Reconnect button of Roblox's "Disconnected" box, or None. Roblox draws the box in its own size,
+    so it is found by shape (a light grey bar near the middle) and only taken if it reads "Reconnect": never Leave."""
+    h, w = img.shape[:2]
+    x0, y0 = int(0.3 * w), int(0.35 * h)
+    region = img[y0:int(0.8 * h), x0:int(0.8 * w)]
+    light = ((region.min(2) > 205) & (region.max(2).astype(int) - region.min(2) < 12)).astype(np.uint8)
+    for s, _ in _components(light, int(0.002 * w * h)):
+        bx, by, bw, bh = (int(v) for v in s[:4])
+        if not (0.07 * w <= bw <= 0.2 * w and 0.025 * h <= bh <= 0.07 * h) or s[4] < 0.7 * bw * bh:
+            continue
+        text = pytesseract.image_to_string(cv2.resize(region[by:by + bh, bx:bx + bw], None, fx=2, fy=2), config="--psm 7")
+        if difflib.SequenceMatcher(None, _letters(text), "reconnect").ratio() >= 0.8:  # one letter off; never "leave"
+            return x0 + bx + bw // 2, y0 + by + bh // 2
+    return None
 
 
 def find_teleport_failed_ok(img: np.ndarray) -> Point | None:

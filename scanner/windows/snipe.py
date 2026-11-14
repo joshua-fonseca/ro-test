@@ -14,6 +14,8 @@ from scanner.reading import screens
 from scanner.windows import controller, navigate, screen
 
 W, S, E = 0x57, 0x53, 0x45  # virtual keys
+MAX_RECONNECTS = 3  # Reconnect clicks in one snipe; the network is still down after that: stop
+NEWS_WAIT = 4  # s for the news box after a reconnect; it may not show at all
 STAY_PAUSE = 0.2  # after Inventory, All and Inspect (they stay on screen), and once a closing button is gone
 HOVER = 0.1  # Roblox can ignore a press that lands the instant the cursor reaches a button (seen live on the stall X)
 
@@ -81,7 +83,7 @@ def _click(hwnd: int, point, img, name: str) -> bool:
 # Buttons that go away when the click works (the stall closes, a box closes): looked at again and clicked again if
 # still there. The rest (Inventory, All, Inspect) stay on screen after their click.
 # Roblox's "Buy Robux and item" box slides in, and a click on its X while it still moves is ignored (seen live).
-GONE_AFTER = {"stall_exit", "buy_check", "sell_on_market", "claim_check", "same_items_check", "robux_box_x"}
+GONE_AFTER = {"news_x", "stall_exit", "buy_check", "sell_on_market", "claim_check", "same_items_check", "robux_box_x"}
 
 
 def _press(hwnd: int, cfg, name: str, find=None) -> None:
@@ -121,6 +123,19 @@ def _press(hwnd: int, cfg, name: str, find=None) -> None:
             if time.time() >= end:
                 break
     raise Stopped(f"the {name} button was clicked 3 times and is still there", img)
+
+
+def _back_to_search(hwnd: int, cfg, stopped: str, left: str) -> None:
+    """From the map centre: W for back_to_search_seconds (new lobby) reaches the Search terminal and holding E opens
+    the search menu, then raises SellerLeft(left) so the scan goes on. Its "E Search" prompt is not looked for: depending
+    on the camera it can sit under the leaderboard (seen live). E only opens a menu; anything but the search menu is a
+    stop (Stopped(stopped))."""
+    _hold(hwnd, W, cfg.back_to_search_seconds)
+    _hold(hwnd, E, cfg.hold_e_seconds)
+    menu, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: (0, 0) if screens.classify(im) == "collection" else None)
+    if menu is None:
+        raise Stopped(stopped, img)
+    raise SellerLeft(left)
 
 
 def _hold(hwnd: int, key: int, seconds: float) -> None:
@@ -174,7 +189,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _steps.update(n=0, save=save, short=False)
     # Arrived once the black "Teleporting..." screen has come and gone. Looked for from the click on, twice a second,
     # so a short one is not missed: the old list can stay up a while first, and a closed list alone proves nothing.
-    seen_black, img, start = False, None, time.time()
+    seen_black, reconnects, img, start = False, 0, None, time.time()
     end = start + cfg.teleport_max_seconds
     while True:
         hwnd = screen.find_roblox(hwnd) or hwnd  # the teleport may leave Roblox in a new window
@@ -185,6 +200,16 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
                 raise Stopped("click on Ok (Teleport Failed) not sent", img)
             time.sleep(cfg.snipe_click_pause)
             raise TeleportFailed("the server is full (Teleport Failed)", img)
+        again = None if img is None else screens.find_reconnect(img)  # "Disconnected": Reconnect (never Leave)
+        if again is not None:
+            if reconnects >= MAX_RECONNECTS:
+                raise Stopped(f"still disconnected after {reconnects} Reconnect clicks", img)
+            if not _click(hwnd, again, img, "reconnect"):
+                raise Stopped("click on Reconnect not sent", img)
+            seen_black, reconnects, start = False, reconnects + 1, time.time()  # a fresh join from here: wait for it again
+            end = start + cfg.teleport_max_seconds
+            time.sleep(cfg.snipe_click_pause)
+            continue
         if img is not None:
             if _mostly_black(img):
                 seen_black = True
@@ -192,6 +217,8 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
                 break
         # shortcut: 15 s is a guess at the longest wait for a teleport to start; raise it if real ones are missed
         if not seen_black and img is not None and time.time() > start + 15:
+            if reconnects:  # not the old list: going back to scanning would click on a loading screen
+                raise Stopped("no loading screen within 15 s of the Reconnect click", img)
             raise NotTeleported("no loading screen within 15 s: the Teleport click did nothing", img)
         if time.time() > end:
             why = "loading" if img is not None else f"Roblox not in front ({screen.foreground_title()!r} was)"
@@ -201,21 +228,20 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     t_world = time.time()
     time.sleep(cfg.teleport_wait_seconds)  # the new world finishes drawing before the walk
     _shot("arrived", img)
+    if reconnects:  # another server, at the map centre: close the news box shown on joining, then back to searching
+        news, img = _wait(hwnd, min(NEWS_WAIT, cfg.snipe_step_timeout), lambda im: screens.snipe_button(im, "news_x"))
+        if news is not None:
+            _press(hwnd, cfg, "news_x")
+        _back_to_search(hwnd, cfg, "reconnected after a disconnect, but the search menu did not open after walking",
+                        "reconnected after a disconnect (on another server, away from the seller)")
     _hold(hwnd, W, cfg.walk_seconds)
     _hold(hwnd, S, cfg.walk_seconds)  # only after stepping back does the "E Open" prompt show
     _hold(hwnd, E, cfg.hold_e_seconds)
     exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: screens.snipe_button(im, "stall_exit"))
     if exit_point is None:
-        # Most likely the seller left the server: the Teleport put us at the map centre. W for 0.7 s (new lobby) reaches
-        # the Search terminal and holding E opens the search menu. Its "E Search" prompt is not looked for: depending on
-        # the camera it can sit under the leaderboard (seen live). E only opens a menu; anything but the search menu is a stop.
-        _shot("seller_not_at_stall", img)
-        _hold(hwnd, W, cfg.back_to_search_seconds)
-        _hold(hwnd, E, cfg.hold_e_seconds)
-        menu, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: (0, 0) if screens.classify(im) == "collection" else None)
-        if menu is None:
-            raise Stopped("the seller's stall did not open, and the search menu did not open after walking back", img)
-        raise SellerLeft("the seller left the server")
+        _shot("seller_not_at_stall", img)  # most likely the seller left the server: the Teleport put us at the map centre
+        _back_to_search(hwnd, cfg, "the seller's stall did not open, and the search menu did not open after walking back",
+                        "the seller left the server")
     t_stall = time.time()
     log.info("timing: stall open %.1f s after the world showed (wait, walk and hold E included)", t_stall - t_world)
     # the stall's X shows before its items and prices have loaded: keep looking a while before calling the item gone
