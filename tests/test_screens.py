@@ -246,7 +246,7 @@ def test_a_label_that_never_reads_is_backed_by_the_search_box():
 
 @pytest.mark.parametrize("read, ok", [("Prismatica Frostbite ShadowDaggers", True), ("Prismatica Frostbite ShadowDaggersl", True),
                                       ("Prismatica Frostbite ShadowDaggersI", True), ("Prismatica Frostbite ShadowDaggersx", False),
-                                      ("Prismatica Frostbite ShadowDagger", False)])
+                                      ("Prismatica Frostbite ShadowDagger", False)])  # one letter short
 def test_the_cursor_after_the_search_text_is_ignored(monkeypatch, read, ok):
     monkeypatch.setattr(screens, "_search_bar", lambda img: (0, 0, 10, 10))
     monkeypatch.setattr(screens.pytesseract, "image_to_string", lambda *a, **k: read + "\n")
@@ -260,3 +260,19 @@ def test_the_cursor_after_the_search_text_is_ignored(monkeypatch, read, ok):
                                          ("sniper_arena_scanner_handoff/live_nya_machete_grid_1900.png", 3)])
 def test_the_games_count_under_the_grid_is_read(path, total):
     assert screens.collected_total(load(path)) == total
+
+
+
+@pytest.mark.parametrize("read, ok", [("Prismatica Solstice M82Al", True), ("Prismatica Solstice M82AI", True),
+                                      ("Prismatica Solstice M82A7", False), ("Prismatica Solstice M82A4", False),
+                                      ("Prismatica Solstice M82All", True), ("Prismatica Solstice M82AT", True),
+                                      ("Prismatica Solstice M82Al1", True)])  # a 1 as l, then the cursor as l or 1
+def test_a_1_in_the_name_may_read_as_l_but_no_other_digit_passes(monkeypatch, read, ok):
+    import numpy as np
+    monkeypatch.setattr(screens, "_search_bar", lambda img: (0, 0, 10, 10))
+    monkeypatch.setattr(screens.pytesseract, "image_to_string", lambda *a, **k: read + "\n")
+    assert screens.search_reads(np.zeros((20, 20, 3), np.uint8), "Prismatica Solstice M82A1") is ok
+
+
+def test_the_m82a1_search_box_reads_with_its_1_as_l():
+    assert screens.search_reads(load("sniper_arena_scanner_handoff/live_grid_m82a1_reads_l_1900.png"), "Prismatica Solstice M82A1")

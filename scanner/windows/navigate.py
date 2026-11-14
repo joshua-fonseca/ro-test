@@ -17,7 +17,7 @@ import numpy as np
 from scanner.windows import controller
 from scanner.reading import layout
 from scanner.windows import screen
-from scanner.reading import screens
+from scanner.reading import screens, vision
 
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,40 @@ def _grid_change(a, b) -> float:
     h, w = a.shape[:2]
     grid = (slice(int(0.18 * h), int(0.82 * h)), slice(int(0.28 * w), int(0.84 * w)))
     return float(cv2.absdiff(a[grid], b[grid]).mean())
+
+
+def _first_tile_change(a, b) -> float:
+    """How much the first tile's picture differs between two captures. It does not animate (0.00 over 40 still frames,
+    the borders around it do), and one skin's tile replacing another's moves it 19+, even where the whole grid barely
+    changes (1.4 for Prismatica Supernova -> Frostbite ShadowDaggers, both alone in the grid)."""
+    p = layout.fixed(a, "first_tile")
+    if p is None or a.shape != b.shape:
+        return 0.0
+    x, y, r = p[0], p[1], int(0.025 * a.shape[1])
+    return float(cv2.absdiff(a[y - r:y + r, x - r:x + r], b[y - r:y + r, x - r:x + r]).mean())
+
+
+def _without_banner(hwnd: int, img, seconds: float = 8):
+    """The grid once an "X bought Y" banner is gone (it lasts about 6 s): its yellow band across the top row looks like
+    tiles to _has_tile (seen: one Desert Eagle taken for four). None if Roblox lost focus."""
+    end = time.time() + seconds
+    while img is not None and vision.has_banner(img) and time.time() < end:
+        time.sleep(0.1)
+        img = screen.capture(hwnd)
+    return img
+
+
+def _grid_behind(img, count_before: int | None = None) -> bool:
+    """True if the grid has not caught up with the search yet: the game still counts what it did before the search
+    (seen: 229, the whole Secret list; only checked from 6 up), or counts fewer than 6 skins while a tile still shows past the last of them
+    (seen: "0 / 1" over the whole Secret Sniper list, its pictures still loading)."""
+    if vision.has_banner(img):  # no telling under a banner; open_results waits it out before looking at tiles
+        return False
+    n = screens.collected_total(img)
+    if n is not None and n == count_before and n >= 6:  # a lone skin after a lone skin also counts 1: no telling
+        return True
+    first = layout.fixed(img, "first_tile")
+    return bool(first is not None and n is not None and n < 6 and _has_tile(img, _slot_point(first, n, img)))
 
 
 def _settled(hwnd: int, img, seconds: float = 3):
@@ -172,6 +206,7 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         save("search_not_cleared", img)
         return False, "could not clear the search box"
     before = img  # the grid as it was when the box was empty; it changes once the filter applies
+    count_read = _name_reader.submit(screens.collected_total, before)  # OCR while the name is pasted (idle here)
     t_cleared = time.time()
     pasted = controller.paste_text(hwnd, skin)
     if pasted:  # the whole name at once
@@ -209,16 +244,26 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
         img = screen.capture(hwnd)
         if img is None:
             return False, "Roblox lost focus"
-        if _grid_change(img, before) > 2:
+        if _grid_change(img, before) > 2 or _first_tile_change(img, before) > 8:  # one lone tile for another: the 2nd
             t_grid = time.time()
             time.sleep(0.4)  # the one wait that is needed: the searched skin takes a moment to load into the grid
+            img = screen.capture(hwnd)  # the grid after the pause, not the frame that first showed the change
             break
         time.sleep(0.05)
     else:
         t_grid = None
+    behind, count_before = time.time() + 2, count_read.result()
+    while img is not None and _grid_behind(img, count_before) and time.time() < behind:  # then go on as before: the name check guards
+        time.sleep(0.1)
+        img = screen.capture(hwnd)
+    if img is None:
+        return False, "Roblox lost focus"
+    t_caught_up = time.time()
     log.info("timing: search: collection screen and filters %.2f s, box click and clear %.2f s, %s %.2f s, %s",
              t_filters - t0, t_cleared - t_filters, how, t_typed - t_cleared,
              "grid did not change within 2 s" if t_grid is None else f"grid changed {t_grid - t_typed:.2f} s, then 0.4 s pause")
+    if t_caught_up - (t_grid or t_typed) > 0.55:
+        log.info("timing: search: the grid caught up with the count %.2f s after the change", t_caught_up - (t_grid or t_typed))
     return True, ""
 
 
@@ -249,12 +294,13 @@ def _button_point(img, name, finder, red=False):
 
 
 def _has_tile(img, point) -> bool:
-    """True if a red skin tile (not the bare grey panel, which has almost no red) is around `point`; a pale picture
-    under a rainbow frame still leaves the red fill."""
+    """True if a skin tile is around `point`, not the bare grey panel (no red, 0% colourful). Limited tiles have a red
+    fill; since a game update Secret ones have a rainbow one (Prismatica Desert Eagles: hardly any red, 70% colourful)."""
     h, w = img.shape[:2]
     r = int(0.04 * w)
     a = img[max(0, point[1] - r):point[1] + r, max(0, point[0] - r):point[0] + r].astype(int)
-    return a.size > 0 and ((a[..., 2] - np.maximum(a[..., 0], a[..., 1])) > 20).mean() > 0.12
+    red, colourful = a[..., 2] - np.maximum(a[..., 0], a[..., 1]) > 20, a.max(2) - a.min(2) > 60  # Limited, Secret
+    return a.size > 0 and (red | colourful).mean() > 0.12
 
 
 def _opened_skin(options, alone_grid, skin: str) -> bool:
@@ -278,6 +324,9 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     img = wait_for(hwnd, "collection", 8)
     if img is None:
         return None, "not on the collection screen"
+    img = _without_banner(hwnd, img)
+    if img is None:
+        return None, "Roblox lost focus"
 
     def first_tile(img):
         # The slot is always the same on a 16:9 window; the finder (by red shape) can pick the second tile when the

@@ -33,6 +33,8 @@ class World:
         m.setattr(navigate.controller, "clear_box", self._backspace)
         m.setattr(navigate.screens, "find_first_tile", lambda img: (100, 200) if self.tile else None)
         m.setattr(navigate.screens, "options_is_for", lambda img, name: self.label_ok)
+        m.setattr(navigate.screens, "collected_total", lambda img: None)
+        m.setattr(navigate.vision, "has_banner", lambda img: False)
         m.setattr(navigate.screens, "find_check_button", lambda img: (300, 400) if self.state == "options" else None)
         m.setattr(navigate.screens, "find_options_cancel", lambda img: (400, 500) if self.state == "options" else None)
         m.setattr(navigate.screens, "find_close_button", lambda img: (500, 600) if self.state == "results" else None)
@@ -359,3 +361,64 @@ def test_buttons_in_a_taller_search_options_are_found_not_taken_from_the_fixed_s
         assert (cancel == layout.fixed(img, "options_cancel")) is fixed_ok
         assert check == screens.find_check_button(img) or fixed_ok
         assert cancel == screens.find_options_cancel(img) or fixed_ok
+
+
+
+@pytest.mark.parametrize("name, tiles", [("live_desert_eagle_six_grid_1900", 6), ("live_prismatica_six_grid", 6),
+                                         ("live_frostbite_grid_1900", 1), ("live_nya_machete_grid_1900", 3)])
+def test_every_tile_is_seen_red_limited_or_rainbow_secret(name, tiles):
+    img = cv2.imread(f"sniper_arena_scanner_handoff/{name}.png")
+    if img is None:
+        pytest.skip("fixture screenshots missing")
+    img = cv2.resize(img, (1900, 1069))
+    first = layout.fixed(img, "first_tile")
+    assert [navigate._has_tile(img, navigate._slot_point(first, k, img)) for k in range(8)] == [k < tiles for k in range(8)]
+
+
+
+def test_one_lone_tile_replacing_another_counts_as_the_grid_changing():
+    a = cv2.imread("sniper_arena_scanner_handoff/live_frostbite_grid_1900.png")
+    b = cv2.imread("sniper_arena_scanner_handoff/live_prismatica_six_grid.png")
+    if a is None or b is None:
+        pytest.skip("fixture screenshots missing")
+    b = cv2.resize(b, (a.shape[1], a.shape[0]))
+    assert navigate._first_tile_change(a, a.copy()) == 0
+    assert navigate._first_tile_change(a, b) > 8
+
+
+
+@pytest.mark.parametrize("name, behind", [("live_grid_behind_count_1900", True), ("live_frostbite_grid_1900", False),
+                                          ("live_desert_eagle_six_grid_1900", False)])
+def test_a_grid_still_showing_more_tiles_than_the_count_is_behind(name, behind):
+    img = cv2.imread(f"sniper_arena_scanner_handoff/{name}.png")
+    if img is None:
+        pytest.skip("fixture screenshots missing")
+    assert navigate._grid_behind(img) is behind  # the first counts 1 over a full grid; the last counts 6: no telling
+
+
+
+def test_a_count_that_has_not_changed_since_before_the_search_means_the_grid_is_behind():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_grid_search_not_applied_1900.png")  # counts 229 under the typed name
+    if img is None:
+        pytest.skip("fixture screenshots missing")
+    assert navigate._grid_behind(img, 229) and not navigate._grid_behind(img, 230)
+
+
+def test_a_lone_skin_after_a_lone_skin_is_not_taken_as_behind(monkeypatch):
+    img = cv2.imread("sniper_arena_scanner_handoff/live_frostbite_grid_1900.png")  # counts 1, one tile
+    if img is None:
+        pytest.skip("fixture screenshots missing")
+    assert not navigate._grid_behind(img, 1)  # the last search counted 1 too
+
+
+
+def test_a_banner_over_the_top_row_is_waited_out_not_taken_for_tiles(monkeypatch):
+    banner = cv2.imread("sniper_arena_scanner_handoff/live_grid_banner_1900.png")  # one tile under an "X bought Y" band
+    clean = cv2.imread("sniper_arena_scanner_handoff/live_frostbite_grid_1900.png")
+    if banner is None or clean is None:
+        pytest.skip("fixture screenshots missing")
+    assert not navigate._grid_behind(banner)  # no telling under it
+    frames = iter([banner, banner, clean])
+    monkeypatch.setattr(navigate.screen, "capture", lambda hwnd: next(frames), raising=False)
+    monkeypatch.setattr(navigate.time, "sleep", lambda s: None)
+    assert navigate._without_banner(1, banner) is clean

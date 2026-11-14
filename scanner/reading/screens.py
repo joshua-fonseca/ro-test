@@ -106,7 +106,10 @@ def search_reads(img: np.ndarray, name: str) -> bool:
         return False
     x, y, w, h = bar
     text, want = _letters(pytesseract.image_to_string(_white(img[y:y + h, x:x + w]), config="--psm 7")), _letters(name)
-    return text == want or (text[:-1] == want and text[-1] in "li")  # the blinking cursor after the text, read as l or I
+
+    def same(t):  # a 1 can read as l, I or T ('M82Al', 'M82AT' for M82A1), never another digit
+        return len(t) == len(want) and all(a == b or (b == "1" and a in "lit") for a, b in zip(t, want))
+    return same(text) or (same(text[:-1]) and text[-1] in "li1")  # the blinking cursor after the text: l, I or 1
 
 
 def collected_total(img: np.ndarray) -> int | None:
