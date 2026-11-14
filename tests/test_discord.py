@@ -36,7 +36,7 @@ def api(monkeypatch):
 
 
 def sent(calls):
-    return [(c[0], c[1], json.loads(c[2]) if c[3] == "application/json" else c[2]) for c in calls if c[0] != "GET"]
+    return [(c[0], c[1], json.loads(c[2]) if c[2] and c[3] == "application/json" else c[2]) for c in calls if c[0] != "GET"]
 
 
 def test_the_time_reads_like_19_22_nov_11_2026():
@@ -79,8 +79,16 @@ def test_a_run_with_no_match_says_so_and_a_new_run_is_a_new_message(api):
     assert sent(api)[-1][2]["content"].split("\n")[1:] == ["Finished 1 pass(es). No match found.",
                                                           f"Run ended: {discord.stamp()}"]
     discord.start(CFG, "Run started")
-    discord.finish(CFG, "Stopped with Ctrl+C.", early=True)
-    assert sent(api)[-1][2]["content"].split("\n")[1:] == ["Stopped with Ctrl+C.", f"Run ended early: {discord.stamp()}"]
+    discord.finish(CFG, "3 scans failed in a row.", early=True)
+    assert sent(api)[-1][2]["content"].split("\n")[1:] == ["3 scans failed in a row.", f"Run ended early: {discord.stamp()}"]
+
+
+def test_ctrl_c_deletes_the_runs_message_and_nothing_more_is_sent(api):
+    discord.start(CFG, "Run started")
+    discord.notify(CFG, LINE, "Bought the item, then put your stall up again.")
+    discord.delete(CFG)
+    discord.finish(CFG, "too late")  # the run is over: no new message
+    assert [(m, p) for m, p, _ in sent(api)][-1] == ("DELETE", "/channels/8/messages/55")
     discord.start(CFG, "Run started again")
     assert sent(api)[-1][0] == "POST"
 

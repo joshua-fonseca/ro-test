@@ -188,13 +188,14 @@ def test_a_dry_run_without_dry_targets_csv_stops_before_touching_anything(monkey
     ([(scan_once.TELEPORTED, True)], 0, ("Finished: the stall is up again.", False)),
     ([(scan_once.SNIPE_STOPPED, True)], 1, ("The snipe stopped part way; take over in the game.", True)),
     ([(1, False)] * 3, 1, ("3 scans failed in a row.", True)),
-    ([], 130, ("Stopped with Ctrl+C.", True)),
+    ([], 130, "deleted"),
 ])
 def test_the_discord_message_is_started_once_and_ends_with_how_the_run_ended(monkeypatch, tmp_path, results, code, ended):
     _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", results)
     said = []
     monkeypatch.setattr(main.discord, "start", lambda cfg, title: said.append(("start", title)))
     monkeypatch.setattr(main.discord, "finish", lambda cfg, how, early: said.append(("finish", (how, early))))
+    monkeypatch.setattr(main.discord, "delete", lambda cfg: said.append(("finish", "deleted")))
     assert main.main(["--snipe"] if results and results[0][0] != 1 else []) == code
     assert said[0][0] == "start" and said[0][1].startswith("Run started ") and len(said) == 2
     assert said[1][0] == "finish" and said[1][1] == ended

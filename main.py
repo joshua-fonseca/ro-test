@@ -167,10 +167,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except KeyboardInterrupt:
         print("Stopped (Ctrl+C).")
-        ended = ("Stopped with Ctrl+C.", True)
+        ended = None  # you stopped it: its Discord message is deleted
         return 130
     finally:
-        discord.finish(cfg, *ended)
+        if ended:
+            discord.finish(cfg, *ended)
+        else:
+            discord.delete(cfg)
 
 
 if __name__ == "__main__":

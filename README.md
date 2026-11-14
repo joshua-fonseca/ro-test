@@ -153,7 +153,7 @@ Each time you start `main.py`, the scanner posts **one new message** in a Discor
 
 - when the run started, e.g. `Run started 19:22, Nov 11 2026 (--snipe)`,
 - each weapon found and what became of it: bought, gone from the stall, the seller left, a stop that needs you, and so on,
-- what ended the run on its own line (`Finished: the stall is up again.`, `Stopped with Ctrl+C.`, `3 scans failed in a row.`...; `No match found.` is added when a run that went to its end found nothing), then `Run ended: <time>`, or `Run ended early: <time>` when it was cut short.
+- what ended the run on its own line (`Finished: the stall is up again.`, `3 scans failed in a row.`...; `No match found.` is added when a run that went to its end found nothing), then `Run ended: <time>`, or `Run ended early: <time>` when it was cut short. Stopping the run with Ctrl+C deletes its message.
 
 Leave the Discord settings empty and nothing is sent. A `--dry-run` posts too (its first line says `--snipe --dry-run`).
 

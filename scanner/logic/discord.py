@@ -107,6 +107,18 @@ def _sync(token: str, server: str, channel: str, lines: list[str], picture: Path
         print(f"Discord message not sent: {e}")
 
 
+def _remove(token: str, server: str, channel: str) -> None:
+    """Delete the run's message, once the sends queued before it have gone out (the pool keeps them in order)."""
+    try:
+        if _run["id"] is not None:
+            _request("DELETE", f"/channels/{_channel_id(token, server, channel)}/messages/{_run['id']}", token)
+    except urllib.error.HTTPError as e:
+        if e.code != 404:  # 404: already deleted in Discord
+            print(f"Discord message not deleted: Discord said {e.code}")
+    except Exception as e:  # never let a message take the run down
+        print(f"Discord message not deleted: {e}")
+
+
 def _update(cfg, add: list[str], picture: Path | None = None, start: bool = False) -> None:
     """Add lines to this run's message (a new message when `start`). Does nothing unless the server and channel are
     set in the config. Never raises: it is called mid-snipe, where an error would look like a crashed snipe."""
@@ -141,6 +153,17 @@ def notify(cfg, line: str, status: str = "") -> None:
     _run["found"] += 1
     _update(cfg, [part for part in (line[:shot.start()] if picture else line, status) if part],
             Path(shot.group(1)) if picture else None)
+
+
+def delete(cfg) -> None:
+    """Take this run's message down (the run was stopped with Ctrl+C). Never raises."""
+    try:
+        token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+        if cfg.discord_server and cfg.discord_channel and token and _run["on"]:
+            _run["on"] = False
+            _pool.submit(_remove, token, cfg.discord_server, cfg.discord_channel)
+    except Exception as e:
+        log.warning("Discord message not deleted: %r", e)
 
 
 def finish(cfg, how: str, early: bool = False) -> None:
