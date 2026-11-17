@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S.Arena scanner: what happens</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #fafafa; color: #222; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 16px; color: #555; }
+  .wrap { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+  .chart { flex: 1 1 900px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 16px; overflow-x: auto; }
+  aside { flex: 0 1 300px; font-size: 14px; line-height: 1.45; }
+  aside h2 { font-size: 15px; margin: 18px 0 6px; }
+  .key { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 1px solid #888; }
+  ul { padding-left: 18px; margin: 0; }
+  code { background: #eee; padding: 0 3px; border-radius: 3px; }
+  figure { margin: 0; }
+  figure svg { width: 100%; max-width: 1620px; height: auto; display: block; }
+  figcaption { font-size: 13px; color: #555; margin-top: 8px; }
+  svg .node { font-size: 14px; fill: #222; }
+  svg .lab { font-size: 12.5px; fill: #444; paint-order: stroke; stroke: #fff; stroke-width: 4px; }
+  svg .col { font-size: 16px; font-weight: 700; fill: #555; }
+</style>
+</head>
+<body>
+<h1>S.Arena scanner: what happens</h1>
+<p class="sub"><code>main.py</code> with <code>--snipe</code>, <code>--dry-run</code>, <code>--loop N</code>. Each step shows once; arrows that go back up are the shared loops.</p>
+<div class="wrap">
+<div class="chart">
+<figure><svg viewBox="0 0 1620 1420" role="img" aria-label="Flow chart of main.py with --snipe and --loop: scan, Teleport, the seller's stall, and the shared way back to searching">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#444"/></marker></defs>
+<text x="240" y="20" class="col" text-anchor="middle">1. Scan the market</text>
+<text x="620" y="365" class="col" text-anchor="middle">2. Teleport</text>
+<text x="1020" y="505" class="col" text-anchor="middle">3. The seller's stall</text>
+<text x="1400" y="1005" class="col" text-anchor="middle">4. Back to searching</text>
+<path d="M240,78 L240,106" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M240,144 L240,167" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M240,223 L240,247" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M240,303 L240,330" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M240,370 L240,397" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M240,548 L240,595" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M620,462 L620,520" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1020,568 L1020,602" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1020,940 L1020,980" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1020,1212 L1020,1260" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1400,1068 L1400,1097" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1400,1153 L1400,1187" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1400,1243 L1400,1277" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M240,453 L240,492" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="248" y="476" class="lab" text-anchor="start">match, no --snipe</text>
+<path d="M240,705 L240,745" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="248" y="729" class="lab" text-anchor="start">no</text>
+<path d="M240,855 L240,900" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="248" y="882" class="lab" text-anchor="start">no</text>
+<path d="M620,560 L620,670" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="612" y="600" class="lab" text-anchor="end">server full:</text>
+<text x="612" y="615" class="lab" text-anchor="end">Ok clicked</text>
+<path d="M1020,658 L1020,700" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="1028" y="683" class="lab" text-anchor="start">found</text>
+<path d="M1020,1100 L1020,1138" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="1028" y="1123" class="lab" text-anchor="start">no</text>
+<path d="M350,425 L510,425" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="360" y="417" class="lab" text-anchor="start">match, --snipe</text>
+<path d="M350,440 L395,440 L395,650 L335,650" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="401" y="470" class="lab" text-anchor="start">no match, too dear</text>
+<path d="M550,462 L550,495 L395,495" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="401" y="510" class="lab" text-anchor="start">list changed</text>
+<path d="M510,540 L395,540" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="401" y="556" class="lab" text-anchor="start">no loading</text>
+<text x="401" y="571" class="lab" text-anchor="start">in 15 s</text>
+<path d="M620,790 L620,815 L395,815 L395,650" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="401" y="808" class="lab" text-anchor="start">no</text>
+<path d="M725,730 L750,730 L750,380 L620,380 L620,388" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="756" y="400" class="lab" text-anchor="start">yes: Teleport to it</text>
+<path d="M680,560 L680,640 L770,640" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="686" y="600" class="lab" text-anchor="start">Disconnected</text>
+<path d="M835,612 L835,552 L730,552" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M730,530 L910,530" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="800" y="522" class="lab" text-anchor="start">arrived</text>
+<path d="M835,668 L835,690 L765,690 L765,1230 L1290,1230" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="757" y="1000" class="lab" text-anchor="end">arrived after a</text>
+<text x="757" y="1015" class="lab" text-anchor="end">Reconnect (another</text>
+<text x="757" y="1030" class="lab" text-anchor="end">server)</text>
+<path d="M1130,540 L1560,540 L1560,1305 L1510,1305" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="1552" y="580" class="lab" text-anchor="end">stall did not open:</text>
+<text x="1552" y="595" class="lab" text-anchor="end">the seller left</text>
+<path d="M1130,630 L1285,630 L1285,920 L1130,920" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="1291" y="650" class="lab" text-anchor="start">gone</text>
+<path d="M910,740 L850,792" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M850,848 L910,900" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1020,740 L1020,792" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1020,848 L1020,900" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1130,740 L1190,792" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1190,848 L1130,900" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M1130,1040 L1290,1040" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="1170" y="1032" class="lab" text-anchor="start">yes</text>
+<path d="M1400,1333 L1400,1390 L85,1390 L85,268 L130,268" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="700" y="1382" class="lab" text-anchor="start">fresh search (--loop: one more bought)</text>
+<path d="M145,650 L60,650 L60,282 L130,282" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="66" y="640" class="lab" text-anchor="start">yes</text>
+<path d="M145,800 L35,800 L35,195 L130,195" fill="none" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="41" y="790" class="lab" text-anchor="start">yes</text>
+<rect x="125.0" y="22.0" width="230" height="56" rx="28.0" fill="#d8f0dc" stroke="#3c8a4a" stroke-width="1.5"/>
+<text x="240" y="46.5" class="node" text-anchor="middle">Start main.py</text>
+<text x="240" y="63.5" class="node" text-anchor="middle">press y, click Roblox</text>
+<rect x="130.0" y="105.5" width="220" height="39" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="240" y="130.0" class="node" text-anchor="middle">Discord: post Run started</text>
+<rect x="130.0" y="167.0" width="220" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="240" y="191.5" class="node" text-anchor="middle">Read targets.csv</text>
+<text x="240" y="208.5" class="node" text-anchor="middle">enabled rows</text>
+<rect x="130.0" y="247.0" width="220" height="56" rx="6" fill="#e9dcff" stroke="#7a4fd0" stroke-width="2.5"/>
+<text x="240" y="271.5" class="node" text-anchor="middle">Search the skin</text>
+<text x="240" y="288.5" class="node" text-anchor="middle">(not again if same skin)</text>
+<rect x="130.0" y="330.5" width="220" height="39" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="240" y="355.0" class="node" text-anchor="middle">Open its results list</text>
+<rect x="130.0" y="397.0" width="220" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="240" y="421.5" class="node" text-anchor="middle">Scroll and read cards</text>
+<text x="240" y="438.5" class="node" text-anchor="middle">cheapest first</text>
+<rect x="130.0" y="492.0" width="220" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="240" y="516.5" class="node" text-anchor="middle">Save the match</text>
+<text x="240" y="533.5" class="node" text-anchor="middle">Discord line</text>
+<polygon points="240,595.0 335.0,650 240,705.0 145.0,650" fill="#fff4d0" stroke="#b08a20" stroke-width="1.5"/>
+<text x="240" y="646.5" class="node" text-anchor="middle">More skins</text>
+<text x="240" y="663.5" class="node" text-anchor="middle">this pass?</text>
+<polygon points="240,745.0 335.0,800 240,855.0 145.0,800" fill="#fff4d0" stroke="#b08a20" stroke-width="1.5"/>
+<text x="240" y="796.5" class="node" text-anchor="middle">More passes?</text>
+<text x="240" y="813.5" class="node" text-anchor="middle">(--cycles)</text>
+<rect x="125.0" y="900.5" width="230" height="39" rx="19.5" fill="#d8f0dc" stroke="#3c8a4a" stroke-width="1.5"/>
+<text x="240" y="925.0" class="node" text-anchor="middle">Stop: Finished N passes</text>
+<rect x="510.0" y="388.5" width="220" height="73" rx="6" fill="#e9dcff" stroke="#7a4fd0" stroke-width="2.5"/>
+<text x="620" y="413.0" class="node" text-anchor="middle">Wait out a banner, check</text>
+<text x="620" y="430.0" class="node" text-anchor="middle">the list is unchanged,</text>
+<text x="620" y="447.0" class="node" text-anchor="middle">click Teleport</text>
+<rect x="510.0" y="520.5" width="220" height="39" rx="6" fill="#e9dcff" stroke="#7a4fd0" stroke-width="2.5"/>
+<text x="620" y="545.0" class="node" text-anchor="middle">Wait for the new server</text>
+<rect x="770.0" y="612.0" width="130" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="835" y="636.5" class="node" text-anchor="middle">Click Reconnect</text>
+<text x="835" y="653.5" class="node" text-anchor="middle">(at most 3)</text>
+<polygon points="620,670.0 725.0,730 620,790.0 515.0,730" fill="#fff4d0" stroke="#b08a20" stroke-width="1.5"/>
+<text x="620" y="726.5" class="node" text-anchor="middle">Card below: other</text>
+<text x="620" y="743.5" class="node" text-anchor="middle">seller, ≤ max_price?</text>
+<rect x="910.0" y="512.0" width="220" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="1020" y="536.5" class="node" text-anchor="middle">Walk to the stall</text>
+<text x="1020" y="553.5" class="node" text-anchor="middle">W, S, hold E</text>
+<rect x="910.0" y="602.0" width="220" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="1020" y="626.5" class="node" text-anchor="middle">Look for the item</text>
+<text x="1020" y="643.5" class="node" text-anchor="middle">scroll the stall</text>
+<rect x="910.0" y="700.5" width="220" height="39" rx="6" fill="#ffe1e1" stroke="#c04040" stroke-width="1.5"/>
+<text x="1020" y="725.0" class="node" text-anchor="middle">Click the cash button</text>
+<rect x="780.0" y="792.0" width="140" height="56" rx="6" fill="#ffe1e1" stroke="#c04040" stroke-width="1.5"/>
+<text x="850" y="816.5" class="node" text-anchor="middle">Green check</text>
+<text x="850" y="833.5" class="node" text-anchor="middle">(buys)</text>
+<rect x="950.0" y="792.0" width="140" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="1020" y="816.5" class="node" text-anchor="middle">Confirm box X</text>
+<text x="1020" y="833.5" class="node" text-anchor="middle">(--dry-run)</text>
+<rect x="1120.0" y="792.0" width="140" height="56" rx="6" fill="#ffe1e1" stroke="#c04040" stroke-width="1.5"/>
+<text x="1190" y="816.5" class="node" text-anchor="middle">Buy Robux box:</text>
+<text x="1190" y="833.5" class="node" text-anchor="middle">its X only</text>
+<rect x="910.0" y="900.5" width="220" height="39" rx="6" fill="#e9dcff" stroke="#7a4fd0" stroke-width="2.5"/>
+<text x="1020" y="925.0" class="node" text-anchor="middle">Close the stall (red X)</text>
+<polygon points="1020,980.0 1130.0,1040 1020,1100.0 910.0,1040" fill="#fff4d0" stroke="#b08a20" stroke-width="1.5"/>
+<text x="1020" y="1036.5" class="node" text-anchor="middle">--loop, not the last</text>
+<text x="1020" y="1053.5" class="node" text-anchor="middle">buy, enough cash?</text>
+<rect x="910.0" y="1138.5" width="220" height="73" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="1020" y="1163.0" class="node" text-anchor="middle">Set your stall up: Inventory,</text>
+<text x="1020" y="1180.0" class="node" text-anchor="middle">All, Inspect, Sell on Market,</text>
+<text x="1020" y="1197.0" class="node" text-anchor="middle">claim, same items</text>
+<rect x="905.0" y="1260.5" width="230" height="39" rx="19.5" fill="#d8f0dc" stroke="#3c8a4a" stroke-width="1.5"/>
+<text x="1020" y="1285.0" class="node" text-anchor="middle">Stop: Finished, stall is up</text>
+<rect x="1290.0" y="1012.0" width="220" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="1400" y="1036.5" class="node" text-anchor="middle">Leave the server</text>
+<text x="1400" y="1053.5" class="node" text-anchor="middle">Esc, L, Enter</text>
+<rect x="1290.0" y="1097.0" width="220" height="56" rx="6" fill="#f3f3fb" stroke="#8a8ab0" stroke-width="1.5"/>
+<text x="1400" y="1121.5" class="node" text-anchor="middle">Home page: click</text>
+<text x="1400" y="1138.5" class="node" text-anchor="middle">loop_friend, then Join</text>
+<rect x="1290.0" y="1187.0" width="220" height="56" rx="6" fill="#e9dcff" stroke="#7a4fd0" stroke-width="2.5"/>
+<text x="1400" y="1211.5" class="node" text-anchor="middle">Close the news box</text>
+<text x="1400" y="1228.5" class="node" text-anchor="middle">if it shows</text>
+<rect x="1290.0" y="1277.0" width="220" height="56" rx="6" fill="#e9dcff" stroke="#7a4fd0" stroke-width="2.5"/>
+<text x="1400" y="1301.5" class="node" text-anchor="middle">Walk to the Search terminal</text>
+<text x="1400" y="1318.5" class="node" text-anchor="middle">W, hold E</text>
+</svg><figcaption>Purple boxes are shared: several paths go through them. Lines on the left and bottom are the loops back up.</figcaption></figure>
+</div>
+<aside>
+  <h2>Colours</h2>
+  <div><span class="key" style="background:#e9dcff;border-color:#7a4fd0"></span>Shared: several paths go through it</div>
+  <div><span class="key" style="background:#ffe1e1;border-color:#c04040"></span>Buy step (cash)</div>
+  <div><span class="key" style="background:#fff4d0;border-color:#b08a20"></span>A choice</div>
+  <div><span class="key" style="background:#d8f0dc;border-color:#3c8a4a"></span>Start and the normal ends</div>
+
+  <h2>The shared loops</h2>
+  <ul>
+    <li><b>Back to Search</b>: the seller left, a Reconnect, and every <code>--loop</code> rejoin all end with the same walk (W, hold E) and a fresh search.</li>
+    <li><b>Close the news box</b>: shared by the Reconnect path and the <code>--loop</code> rejoin.</li>
+    <li><b>Teleport</b>: tried again on the card below after a full server.</li>
+    <li><b>Wait for the new server</b>: Reconnect loops back into it.</li>
+    <li><b>Close the stall</b>: every way through the stall (bought, dry run, gone, no cash) meets here.</li>
+  </ul>
+
+  <h2>Stops not drawn</h2>
+  <ul>
+    <li>Any button that does not show in time: <b>Snipe stopped, take over</b>.</li>
+    <li>3 failed scans in a row: stop.</li>
+    <li>Roblox not in front: it pauses and sends nothing.</li>
+    <li>Ctrl+C: stop, and the Discord message is deleted.</li>
+    <li>Not enough cash with <code>--loop</code>: the stall is set up and the run stops.</li>
+  </ul>
+</aside>
+</div>
+</body>
+</html>
