@@ -276,3 +276,17 @@ def test_a_1_in_the_name_may_read_as_l_but_no_other_digit_passes(monkeypatch, re
 
 def test_the_m82a1_search_box_reads_with_its_1_as_l():
     assert screens.search_reads(load("sniper_arena_scanner_handoff/live_grid_m82a1_reads_l_1900.png"), "Prismatica Solstice M82A1")
+
+
+def test_the_loop_friend_and_its_join_button_are_found_on_roblox_home_page():
+    home, join, lobby = (cv2.imread(f"sniper_arena_scanner_handoff/live_{n}.png")
+                         for n in ("home_friends", "home_friend_join", "lobby_news_box"))
+    if home is None or join is None or lobby is None:
+        pytest.skip("fixture screenshots missing")
+    x, y = screens.find_friend(home, "IAMBADATFUN")
+    assert 264 < x < 380 and 290 < y < 310  # "IAMBADATFUN..." under the second avatar
+    assert screens.find_friend(join, "IAMBADATFUNK") is not None  # the row moved (amia): found by reading
+    assert screens.find_friend(home, "Someoneelse") is None and screens.find_friend(lobby, "IAMBADATFUN") is None
+    x, y = screens.find_join(join)
+    assert 179 < x < 464 and 410 < y < 460
+    assert screens.find_join(home) is None  # no box open (the blue game picture is not a button)

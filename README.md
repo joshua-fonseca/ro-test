@@ -109,6 +109,7 @@ Commonly used flags:
 | Flag | Meaning |
 |---|---|
 | `--snipe` | on the first match: Teleport, buy from the seller's stall, relist your own stall, stop |
+| `--loop N` | with `--snipe`: buy N times. After each buy but the last it leaves the server (Esc, L, Enter), joins the friend named `loop_friend` in `config.json` (default `IAMBADATFUN`) from Roblox's home page, closes the news box, walks to the Search terminal and goes on. Your stall is set up only after the last buy |
 | `--dry-run` | with `--snipe`: everything except the buy (the confirm box is cancelled). Reads `dry_targets.csv` instead of `targets.csv` |
 | `--width N` / `--height N` | first resize every game window so the game area is N px wide / high (16:9). Run it once per session. Use 1900: the only size that is reliable so far |
 
@@ -127,6 +128,7 @@ The window must be 16:9 (the layout is measured in fractions of it). With severa
 - Without `--snipe` the scanner is read-only.
 - Only `--snipe` clicks Teleport, the buy button and its confirm check, and the Sell on Market / stall steps.
 - If Roblox says "Disconnected" after Teleport, `--snipe` clicks Reconnect (never Leave), closes the news box shown on joining (its red X), walks back to the Search terminal and goes on scanning: the reconnect lands on another server, so that listing is lost.
+- With `--loop`, between buys it presses Esc, L, Enter to leave the server and clicks your friend's name and Join on Roblox's home page, only when the box says they are playing Sniper Arena.
 - It never clicks the game's "Buy ... and item" box's Buy button (that charges real money). Only that box's X is clicked.
 - `--dry-run` first: check the saved pictures in `output/probe/` (`snipe_NN_<step>.png`) before a real buy.
 
@@ -146,6 +148,8 @@ counts). Unknown keys are ignored.
 ```json
 {"teleport_max_seconds": 120}
 ```
+
+- `"loop_friend"`: the friend whose server `--loop` joins again after each buy, as the start of the name shown on Roblox's home page (long names end in "...", so the start is enough), e.g. `{"loop_friend": "IAMBADATFUN"}`. The friend must be online and in Sniper Arena.
 
 ## Discord messages (optional)
 

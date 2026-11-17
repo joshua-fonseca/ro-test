@@ -199,3 +199,19 @@ def test_the_discord_message_is_started_once_and_ends_with_how_the_run_ended(mon
     assert main.main(["--snipe"] if results and results[0][0] != 1 else []) == code
     assert said[0][0] == "start" and said[0][1].startswith("Run started ") and len(said) == 2
     assert said[1][0] == "finish" and said[1][1] == ended
+
+
+def test_loop_buys_n_times_and_only_the_last_snipe_sets_the_stall_up(monkeypatch, tmp_path):
+    relists = []
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n",
+                      [(scan_once.BOUGHT, False), (0, True), (scan_once.BOUGHT, False), (scan_once.TELEPORTED, False)])
+    run_once = scan_once._run_once
+    monkeypatch.setattr(scan_once, "_run_once", lambda hwnd, cfg, *a: relists.append(cfg.relist) or run_once(hwnd, cfg, *a))
+    assert main.main(["--snipe", "--loop", "3"]) == 0
+    assert relists == [False, False, False, True]  # the third buy is the last: its snipe sets the stall up
+    assert calls[1][2] is False  # after rejoining, the skin is searched again
+
+
+def test_loop_needs_snipe(monkeypatch, tmp_path):
+    calls, _ = _setup(monkeypatch, tmp_path, "Nya Reaper,Knife,Secret,8200,,true\n", [])
+    assert main.main(["--loop", "2"]) == 2 and not calls

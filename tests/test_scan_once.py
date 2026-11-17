@@ -445,25 +445,53 @@ def test_teleport_is_clicked_only_while_the_list_looks_as_it_did(monkeypatch):
     assert not ok and len(clicks) == 1
 
 
-def test_a_full_server_is_tried_again_on_the_same_listing_then_the_next_skin(monkeypatch, tmp_path):
+def test_a_full_server_goes_for_the_next_listing_while_it_matches(monkeypatch, tmp_path):
     from scanner.logic.config import Config
     from scanner.windows import snipe as flow
-    tries, still_listed = [], iter([True, True, False])
-    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (next(still_listed), "the list moved"))
+    tries, told = [], []
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (tries.append(card) or True, ""))
+    monkeypatch.setattr(flow, "after_teleport", lambda *a: (_ for _ in ()).throw(flow.TeleportFailed("the server is full")))
+    nexts = iter([("box2", types.SimpleNamespace(price=4500, price_approx=False)), None])
+    monkeypatch.setattr(scan_once, "_next_listing", lambda shown, box, target: next(nexts))
+    recorded = []
+    listing = types.SimpleNamespace(price=4000, price_approx=False)
+    target = Target("Nya Reaper", "Knife", "Secret", 5000, None, True)
+    assert scan_once._snipe(1, Config(), tmp_path, target, None, "box1", listing,
+                            report=lambda text, line=None: told.append((text, line)),
+                            record=lambda img, box, l: recorded.append((box, l.price)) or "[4,500 line]") == 0
+    assert tries == ["box1", "box2"]  # the full one, then the card below; that one over max_price: next skin
+    assert recorded == [("box2", 4500)]  # the listing it went for is logged as a match, with its own line
+    assert told == [("Teleport failed: the server is full. Clicked Ok; trying the next listing.", None),
+                    ("Teleport failed: the server is full. Clicked Ok; the next listing is not a match (over max_price,"
+                     " or not in view). Going on with the next skin.", "[4,500 line]")]
 
-    def full(*a):
-        tries.append(1)
-        raise flow.TeleportFailed("the server is full")
-    monkeypatch.setattr(flow, "after_teleport", full)
-    listing = types.SimpleNamespace(price=100, price_approx=False)
-    target = Target("Nya Reaper", "Knife", "Secret", 999, 2, True)
-    assert scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing) == 0
-    assert len(tries) == 2  # tried twice; on the third look the listing was gone: next skin
-    still_listed = iter([True] * 9)
-    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (next(still_listed), ""))
-    tries.clear()
-    assert scan_once._snipe(1, Config(teleport_retries=3), tmp_path, target, None, None, listing) == 0
-    assert len(tries) == 4  # the first try and 3 retries, then next skin
+
+def test_the_next_listing_is_the_card_below_and_must_match(monkeypatch):
+    boxes = [(0, 100, 10, 200), (0, 210, 10, 310), (0, 320, 10, 420)]
+    monkeypatch.setattr(scan_once.vision, "find_cards", lambda img: boxes)
+    monkeypatch.setattr(scan_once.vision, "full_card", lambda b, mid: b)
+    price = {210: 4500, 320: 3000}
+    monkeypatch.setattr(scan_once.vision, "read_card", lambda img, b, max_price=None: types.SimpleNamespace(
+        complete=True, wait=False, listing=types.SimpleNamespace(price=price[b[1]], price_approx=False, serial=None,
+                                                                 stattrak=False)))
+    monkeypatch.setattr(scan_once, "_same_seller", lambda img, a, b: False)
+    img = np.zeros((1000, 1000, 3), np.uint8)
+    ok = Target("Nya Reaper", "Knife", "Secret", 5000, None, True)
+    assert scan_once._next_listing(img, boxes[0], ok)[0] == boxes[1]
+    assert scan_once._next_listing(img, boxes[0], Target("Nya Reaper", "Knife", "Secret", 4000, None, True)) is None
+    assert scan_once._next_listing(img, boxes[2], ok) is None  # nothing below
+    monkeypatch.setattr(scan_once, "_same_seller", lambda img, a, b: b == boxes[1])
+    assert scan_once._next_listing(img, boxes[0], ok)[0] == boxes[2]  # the same seller's stall: same full server
+
+
+def test_the_seller_line_tells_two_cards_of_one_seller_apart_from_another():
+    img = np.full((600, 400, 3), 60, np.uint8)
+    for top in (0, 100, 200):
+        cv2.putText(img, "KONTAG's stall" if top < 200 else "Someone's stall", (90, top + 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    a, b, c = (0, 0, 400, 100), (0, 100, 400, 200), (0, 200, 400, 300)
+    assert scan_once._same_seller(img, a, b) and not scan_once._same_seller(img, a, c)
+    assert not scan_once._same_seller(img, (0, -50, 400, 50), b)  # cut off at the top: not known, so not the same
 
 
 def test_a_snipe_reports_once_how_it_ended(monkeypatch, tmp_path):
@@ -564,3 +592,37 @@ def test_a_first_frame_that_decides_the_scan_is_not_scrolled(tmp_path, monkeypat
     target = Target("Starveil AWP", "Sniper", "Limited", 1000, None, True)  # the list starts at 3,000
     r = scan_list(cv2.imread(FRAMES[0]), lambda n: calls.append(n) or frames(n), target, store, tmp_path, NOW, at_top=True)
     assert (r["status"], r["records"]) == ("stopped_at_price", 20) and calls == []  # not even looked at again, nothing scrolled
+
+
+
+def test_a_banner_over_the_list_is_waited_out_before_teleport(monkeypatch):
+    clean = cv2.imread("sniper_arena_scanner_handoff/live_teleport_list_clean_1900.png")
+    banner = cv2.imread("sniper_arena_scanner_handoff/live_teleport_list_banner_1900.png")
+    if clean is None or banner is None:
+        pytest.skip("fixture screenshots missing")
+    from scanner.windows import navigate, screen
+    frames = iter([banner] * 5 + [clean])  # the banner passes after a moment; the list itself never changed
+    monkeypatch.setattr(screen, "capture", lambda hwnd: next(frames), raising=False)
+    monkeypatch.setattr(navigate, "_click", lambda hwnd, p, img, hover=0: True)
+    monkeypatch.setattr(scan_once.screens, "find_teleport", lambda img, card: (1248, 432))
+    monkeypatch.setattr(scan_once.time, "sleep", lambda s: None)
+    assert scan_once._teleport(1, clean, None) == (True, "")
+    frames = iter([banner] * 1000)  # a banner that never goes: refused once the 8 s are up
+    clock = iter(range(0, 1000))
+    monkeypatch.setattr(scan_once.time, "time", lambda: next(clock))
+    assert scan_once._teleport(1, clean, None)[0] is False
+
+
+def test_a_failed_rejoin_after_a_buy_says_so(monkeypatch, tmp_path):
+    from scanner.logic.config import Config
+    from scanner.windows import snipe as flow
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (True, ""))
+    monkeypatch.setattr(flow, "after_teleport", lambda *a: flow._steps.update(short=False, bought=True) or "Bought the item.")
+    monkeypatch.setattr(flow, "rejoin", lambda hwnd, cfg: (_ for _ in ()).throw(flow.Stopped("no friend")))
+    told = []
+    listing = types.SimpleNamespace(price=100, price_approx=False)
+    target = Target("Nya Reaper", "Knife", "Secret", 999, None, True)
+    assert scan_once._snipe(1, Config(relist=False), tmp_path, target, None, None, listing,
+                            report=lambda text, line=None: told.append(text)) == scan_once.SNIPE_STOPPED
+    assert told == ["Bought the item.", "Rejoining IAMBADATFUN's server stopped: no friend. Your stall is not set up;"
+                                        " take over from here."]

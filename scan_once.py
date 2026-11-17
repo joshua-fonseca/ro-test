@@ -375,23 +375,47 @@ def _live_frames(hwnd: int, frames_dir: Path | None = None):
 
 
 SELLER_LEFT = 11  # _snipe's result when the seller had left: back at the search menu, the scan goes on
+BOUGHT = 13  # --loop: bought (or a dry run's cancel), left and rejoined the friend's server: the loop goes on
 SNIPE_STOPPED = 12  # like TELEPORTED, but the steps after Teleport stopped part way: the caller stops too
 TELEPORTED = 10  # _run_once's exit code once --snipe clicked Teleport (and ran the steps after it): the caller stops
 
 
+TELEPORT_RECHECK = 1  # s the list may differ before Teleport is refused (after any banner has passed)
+REFUSED_KEPT = 10  # refused-Teleport picture pairs kept in probe/
+
+
 def _teleport(hwnd: int, shown: np.ndarray, card, probe: Path | None = None) -> tuple[bool, str]:
     """--snipe: click Teleport on the matched card, but only if the list still looks exactly as it did when the card
-    was read (nothing scrolled or covered it) and the spot is a green Teleport button. (clicked, why not)."""
+    was read (nothing scrolled or covered it) and the spot is a green Teleport button. (clicked, why not).
+    An open list never changes (listings bought or added only show after reopening it), so a difference is something
+    passing over it: looked at again for up to 1 s, or 8 s while an "X bought Y" banner shows (seen: it moved the
+    card's top edge 9 px)."""
     from scanner.windows import navigate, screen
-    now = screen.capture(hwnd)
+    b = _view(shown)
+    if b is None:
+        return False, "no results list in the frame the match was read from"
+    now, end, waited = screen.capture(hwnd), time.time() + TELEPORT_RECHECK, False
+    while now is not None and not _same(_view(now), b):
+        if not waited and vision.has_banner(now):
+            waited, now = True, navigate._without_banner(hwnd, now)
+            end = time.time() + TELEPORT_RECHECK
+            continue
+        if time.time() > end:
+            if probe:  # to check later what changed: the last REFUSED_KEPT refusals are kept
+                try:  # a picture still being written or deleted must not end the scan
+                    for old in sorted(probe.glob("teleport_refused_*_before.png"), key=lambda p: p.stat().st_mtime)[:1 - REFUSED_KEPT]:
+                        old.unlink(missing_ok=True)
+                        old.with_name(old.name.replace("_before", "_after")).unlink(missing_ok=True)
+                except OSError as e:
+                    log.warning("could not delete old refused-Teleport pictures: %s", e)
+                when = datetime.now().strftime("%m%d_%H%M%S")
+                _save_later(probe / f"teleport_refused_{when}_before.png", shown)
+                _save_later(probe / f"teleport_refused_{when}_after.png", now)
+            return False, "the list moved since the match was read"
+        time.sleep(0.2)
+        now = screen.capture(hwnd)
     if now is None:
         return False, "Roblox lost focus"
-    a, b = _view(now), _view(shown)
-    if a is None or b is None or not _same(a, b):
-        if probe:  # to check later what changed
-            _save_later(probe / "teleport_refused_before.png", shown)
-            _save_later(probe / "teleport_refused_after.png", now)
-        return False, "the list moved since the match was read"
     point = screens.find_teleport(now, card)
     if point is None:
         return False, "no green Teleport button where the matched card is"
@@ -401,54 +425,99 @@ def _teleport(hwnd: int, shown: np.ndarray, card, probe: Path | None = None) -> 
     return True, ""
 
 
-def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing, report=print) -> int:
-    """--snipe on a match: Teleport, then snipe.after_teleport. A full server ("Teleport Failed", Ok clicked) is tried
-    again on the same listing, up to cfg.teleport_retries more times, while the list still shows it. TELEPORTED once it
+def _seller_patch(img: np.ndarray, box):
+    """Grey pixels of the card's "<seller>'s stall" line (the seller's name is not read as text), or None if cut off."""
+    l, t, r, b = (int(v) for v in box)
+    y0, y1 = t + int(0.08 * (b - t)), t + int(0.32 * (b - t))
+    if y0 < 0 or y1 > img.shape[0]:
+        return None
+    return cv2.cvtColor(img[y0:y1, l + int(0.2 * (r - l)):l + int(0.6 * (r - l))], cv2.COLOR_BGR2GRAY).astype(int)
+
+
+def _same_seller(img: np.ndarray, a, b) -> bool:
+    pa, pb = _seller_patch(img, a), _seller_patch(img, b)
+    return pa is not None and pb is not None and pa.shape == pb.shape and np.abs(pa - pb).mean() < 3
+
+
+def _next_listing(shown: np.ndarray, box, target):
+    """After a full server: the next card below `box` in the same frame (the list does not change while open) from
+    another seller (the same seller's stall is on the same full server), as (its box, its listing) if it matches too;
+    None if it is over max_price, does not read, or is not in view."""
+    mid = 0.48 * shown.shape[0]
+    for b in sorted((b for b in vision.find_cards(shown) if b[1] > box[1] + (box[3] - box[1]) // 2), key=lambda b: b[1]):
+        full = vision.full_card(b, mid)
+        if _same_seller(shown, box, full):
+            continue
+        card = vision.read_card(shown, b, max_price=target.max_price)
+        if not card.complete or card.wait or card.listing is None or not matches(target, card.listing):
+            return None
+        return full, card.listing
+    return None
+
+
+def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing,
+           report=lambda text, line=None: print(text), record=None) -> int:
+    """--snipe on a match: Teleport, then snipe.after_teleport. After a full server ("Teleport Failed", Ok clicked) the card
+    below is tried if it matches too; otherwise the next skin. TELEPORTED once it
     teleported (the loop stops); SELLER_LEFT if the seller was gone and the search menu was opened again (the scan goes
     on, with a fresh search); 0 to close the results and go on with the next skin. `report(text)` gets how it ended
-    (bought, gone from the stall, seller left, stopped...), once."""
+    (bought, gone from the stall, seller left, stopped...), once per listing tried; for the card below, with that
+    card's line from `record(frame, box, listing)` (which logs it as a match) as `line`."""
     from scanner.windows import snipe as flow
     probe = out / "probe"
     probe.mkdir(parents=True, exist_ok=True)
-    for old in [*probe.glob("snipe_*.png"), *probe.glob("teleport_refused*.png")]:  # only this snipe's screens are kept
+    for old in probe.glob("snipe_*.png"):  # only this snipe's screens are kept (refused Teleports keep theirs)
         old.unlink()
-    for attempt in range(1 + cfg.teleport_retries):
-        if attempt:
-            time.sleep(1)  # after Ok: let the list settle before checking it still shows the listing
+    rejoining = False  # --loop: the snipe is reported; leaving and joining the friend's server again
+    say = report  # after a full server: names the next listing it went for
+    while True:
         t = time.perf_counter()
         teleported, why = _teleport(hwnd, shown, card, probe)
         log.info("timing: checking and clicking Teleport took %.2f s", time.perf_counter() - t)
         if not teleported:
-            report(f"Teleport not clicked: {why}. Going on with the next skin.")
+            say(f"Teleport not clicked: {why}. Going on with the next skin.")
             return 0
         print("Teleport clicked.")
         try:
-            report(flow.after_teleport(hwnd, cfg, target.skin_name, listing.price,
+            say(flow.after_teleport(hwnd, cfg, target.skin_name, listing.price,
                                       price_high(listing.price, listing.price_approx),
                                       lambda name, im: cv2.imwrite(str(probe / f"{name}.png"), im)))
+            if not cfg.relist and not flow._steps["short"]:  # --loop: back to the friend's server for the next snipe
+                rejoining = True
+                flow.rejoin(hwnd, cfg)
+                print(f"Rejoined {cfg.loop_friend}'s server; searching again.")
+                return BOUGHT if flow._steps["bought"] else SELLER_LEFT
         except flow.NotTeleported as e:  # still on this server with the list up: same as Teleport not clicked
-            report(f"{e}. Going on with the next skin.")
+            say(f"{e}. Going on with the next skin.")
             return 0
         except flow.SellerLeft as e:
-            report(f"{e}; walked back and opened the search menu. Nothing bought. Going on.")
+            say(f"{e}; walked back and opened the search menu. Nothing bought. Going on.")
             return SELLER_LEFT
-        except flow.TeleportFailed as e:  # Ok was clicked: the results list shows again
-            last = attempt == cfg.teleport_retries
-            (report if last else print)(f"Teleport failed: {e}. Clicked Ok; "
-                                        + ("going on with the next skin." if last else "trying the same listing again."))
+        except flow.TeleportFailed as e:  # Ok was clicked: the results list shows again, unchanged
+            nxt = _next_listing(shown, card, target)
+            if nxt is None:
+                say(f"Teleport failed: {e}. Clicked Ok; the next listing is not a match (over max_price, or not in view)."
+                    " Going on with the next skin.")
+                return 0
+            say(f"Teleport failed: {e}. Clicked Ok; trying the next listing.")
+            card, listing = nxt
+            line = record(shown, card, listing) if record else None
+            if line:
+                print(line)
+                say = lambda text, line=line: report(text, line)  # noqa: E731
             continue
         except flow.Stopped as e:
-            report(f"Snipe stopped: {e}. Nothing more was sent; take over from here.")
+            say(f"Rejoining {cfg.loop_friend}'s server stopped: {e}. Your stall is not set up; take over from here."
+                if rejoining else f"Snipe stopped: {e}. Nothing more was sent; take over from here.")
             if e.img is not None:  # diagnostics: the screen the flow gave up on
                 cv2.imwrite(str(probe / "snipe_stopped.png"), e.img)
                 print(f"The screen it stopped on: {probe / 'snipe_stopped.png'}")
             return SNIPE_STOPPED
         except Exception:  # Teleport went through: whatever broke, never go back to scanning on the new server
             log.exception("the snipe flow crashed after Teleport")
-            report("Snipe stopped: the flow crashed after Teleport (see run.log). Nothing more was sent; take over from here.")
+            say("Snipe stopped: the flow crashed after Teleport (see run.log). Nothing more was sent; take over from here.")
             return SNIPE_STOPPED
         return TELEPORTED
-    return 0
 
 
 def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: bool,
@@ -543,9 +612,12 @@ def _run_once(hwnd: int, cfg, out: Path, target, navigate_mode: bool, searched: 
         if r.get("match"):  # only set when scan_list ran with snipe
             line = r["lines"][0] if r["lines"] else ""
             result = _snipe(hwnd, cfg, out, target, *r["match"],
-                            report=lambda text: (print(text), discord.notify(cfg, line, text)))  # notify never raises
+                            report=lambda text, l=None: (print(text), discord.notify(cfg, l or line, text)),  # never raises
+                            record=lambda img, box, l: store.record(now, target, l, True, report_again=True, make_crop=lambda: save_crop(
+                                Image.fromarray(img[:, :, ::-1]), box, out / "screenshots" / "matches", Path.cwd(), now,
+                                target.skin_name, l.price, l.seller)))
             teleported = bool(result)  # on a new server: the results list is not there to close
-            if result in (TELEPORTED, SNIPE_STOPPED):
+            if result in (TELEPORTED, SNIPE_STOPPED, BOUGHT):
                 return result, navigated
             if result == SELLER_LEFT:
                 return 0, False  # the search menu is fresh: the next scan searches again from scratch

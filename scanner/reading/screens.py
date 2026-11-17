@@ -518,6 +518,39 @@ def find_reconnect(img: np.ndarray) -> Point | None:
     return None
 
 
+def find_friend(img: np.ndarray, name: str) -> Point | None:
+    """Centre of the friend `name` in the friends row of Roblox's home page, or None. Read, not a fixed spot: the
+    row's order changes (seen). Long names end in "...", so the start shown must match the start of `name`."""
+    h, w = img.shape[:2]
+    y0 = int(0.27 * h)
+    grey = cv2.resize(cv2.cvtColor(img[y0:int(0.33 * h)], cv2.COLOR_BGR2GRAY), None, fx=2, fy=2)
+    d = pytesseract.image_to_data(255 - grey, config="--psm 11", output_type=pytesseract.Output.DICT)
+    want = _letters(name)
+    for i, text in enumerate(d["text"]):
+        shown = _letters(text)
+        if len(shown) >= min(6, len(want)) and difflib.SequenceMatcher(None, shown, want[:len(shown)]).ratio() >= 0.85:
+            return (d["left"][i] + d["width"][i] // 2) // 2, y0 + (d["top"][i] + d["height"][i] // 2) // 2
+    return None
+
+
+def find_join(img: np.ndarray) -> Point | None:
+    """Centre of the blue Join button in the box Roblox's home page shows for a friend, or None. Only taken when the
+    box says the friend "is playing ... Sniper": never joins them in another game."""
+    h, w = img.shape[:2]
+    b, g, r = (img[..., i].astype(int) for i in range(3))
+    blue = (b > 200) & (r < 110) & (g < 140) & (b - r > 120)
+    for s, _ in _components(blue, int(0.002 * w * h)):
+        x, y, bw, bh = (int(v) for v in s[:4])
+        if not (0.1 * w <= bw <= 0.2 * w and 0.03 * h <= bh <= 0.07 * h) or s[4] < 0.9 * bw * bh:
+            continue
+        above = img[max(0, y - int(0.07 * h)):max(0, y - int(0.01 * h)), x:x + bw]
+        grey = cv2.resize(cv2.cvtColor(above, cv2.COLOR_BGR2GRAY), None, fx=2, fy=2)
+        text = pytesseract.image_to_string(255 - grey).casefold()
+        if "playing" in text and "sniper" in text:
+            return x + bw // 2, y + bh // 2
+    return None
+
+
 def find_teleport_failed_ok(img: np.ndarray) -> Point | None:
     """Centre of the white Ok button of Roblox's "Teleport Failed" box (server full), or None. Roblox draws that box
     in its own size, not the game's, so it is found by shape: a wide pure-white bar near the middle with the box's flat

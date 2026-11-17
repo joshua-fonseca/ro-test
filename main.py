@@ -14,6 +14,9 @@ Flags:
     --clear-matches   first delete matches.csv and the saved match pictures, then scan as usual
     --snipe           on the first match: Teleport, buy it from the seller's stall, put your own stall up again, then
                       stop the loop (scanner/windows/snipe.py; waits and hold times are in config.json)
+    --loop N          with --snipe: buy N times. After each buy but the last: leave the server, join the friend in
+                      config.json "loop_friend" from Roblox's home page, close the news box, walk to the Search
+                      terminal and go on; the stall is set up only after the last (or when cash runs out)
     --dry-run         with --snipe: do every step but the buy: the confirm box is cancelled (its red X), the rest
                       (stall X, Inventory ... same-items check) still runs, so it is a full rehearsal. Reads
                       dry_targets.csv instead of targets.csv
@@ -85,10 +88,16 @@ def main(argv: list[str] | None = None) -> int:
                       help="on the first match: Teleport, buy it from the stall, put your stall up again, then stop")
     args.add_argument("--dry-run", action="store_true",
                       help="with --snipe: every step except the green check that buys (the confirm box is cancelled)")
+    args.add_argument("--loop", type=int, default=0,
+                      help="with --snipe: buy this many times, rejoining the loop_friend's server between buys")
     a = args.parse_args(argv)
+    if a.loop and not a.snipe:
+        print("--loop works only with --snipe.")
+        return 2
     if a.dry_run and not a.snipe:
         args.error("--dry-run only works together with --snipe")
-    cfg = dataclasses.replace(load_config(), dry_run=a.dry_run)
+    cfg = dataclasses.replace(load_config(), dry_run=a.dry_run, relist=a.loop <= 1)
+    bought = 0  # --loop: buys so far
     if a.dry_run:
         cfg = dataclasses.replace(cfg, targets_path="dry_targets.csv")
     if not os.path.exists(cfg.targets_path):
@@ -122,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(cfg.output_dir)
     setup_run_log(out)
     discord.start(cfg, f"Run started {discord.stamp()} ("
-                  + ("--snipe --dry-run" if a.dry_run else "--snipe" if a.snipe else "scan only") + ")")
+                  + ("--snipe --dry-run" if a.dry_run else "--snipe" if a.snipe else "scan only")
+                  + (f" --loop {a.loop}" if a.loop else "") + ")")
     ended = ("The program crashed (see output/run.log).", True)  # (what happened, ended early)
     searched, failures = None, 0  # searched: the skin whose search text is still in the box
     picked = None  # (category, rarity) the buttons were last set to by a good scan
@@ -136,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
                 ended = (f"No enabled skin with a max_price in {cfg.targets_path}.", True)
                 return 2
             for target in targets:
+                hwnd = screen.find_roblox(hwnd) or hwnd  # --loop: rejoining may have left Roblox in a new window
                 _wait_for_focus(hwnd, screen)  # pause here while you are in another window
                 try:
                     code, ok = scan_once._run_once(hwnd, cfg, out, target, True, searched == target.skin_name,
@@ -143,13 +154,21 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception:  # one bad read or screen must not end an unattended run: count it as a failed scan
                     logging.getLogger(__name__).exception("%s: the scan crashed", target.skin_name)
                     code, ok = 1, False
+                if code == scan_once.BOUGHT:  # --loop: back on the friend's server, at the search menu
+                    bought += 1
+                    print(f"Bought {bought} of {a.loop}.")
+                    cfg = dataclasses.replace(cfg, relist=bought >= a.loop - 1)  # the last snipe sets the stall up
+                    searched, picked, failures = None, None, 0
+                    continue
                 if code == scan_once.TELEPORTED:
                     print(f"Teleported for {target.skin_name}. Stopping the loop: it is your turn.")
-                    ended = ("Finished: the stall is up again.", False)
+                    ended = ("Finished: the stall is up again."
+                             + (f" {bought} bought before this snipe (--loop {a.loop})." if a.loop else ""), False)
                     return 0
                 if code == scan_once.SNIPE_STOPPED:
                     print(f"Teleported for {target.skin_name}, but the steps after it stopped. Stopping the loop: take over.")
-                    ended = ("The snipe stopped part way; take over in the game.", True)
+                    ended = ("The snipe stopped part way; take over in the game."
+                             + (f" {bought} bought before this snipe (--loop {a.loop})." if a.loop else ""), True)
                     return 1
                 searched = target.skin_name if ok and not code else None  # after a failure, search again
                 picked = (target.category, target.rarity) if ok and not code else None  # and click the buttons again

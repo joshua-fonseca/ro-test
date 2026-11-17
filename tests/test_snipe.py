@@ -384,3 +384,47 @@ def test_no_search_menu_after_walking_back_is_a_stop(monkeypatch):
         run()
     assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E", "W", "E"]
     assert not [d for d in done if d[0] == "click"]
+
+
+def test_a_loop_snipe_skips_the_stall_setup_until_the_last(monkeypatch):
+    done, _ = _flow(monkeypatch, [6, 8, 8, 9, 8, 8, 10], "Northern Forest Kukri", 15)
+    assert snipe.after_teleport(1, dataclasses.replace(FAST, relist=False), "Northern Forest Kukri", 15, 15) == "Bought the item."
+    assert len([d for d in done if d[0] == "click"]) == 3 and snipe._steps["bought"]  # cash, check, stall X: no Inventory
+
+
+def test_rejoin_leaves_joins_the_friend_closes_the_news_box_and_walks_to_search(monkeypatch):
+    home, join, lobby = (cv2.imread(f"sniper_arena_scanner_handoff/live_{n}.png")
+                         for n in ("home_friends", "home_friend_join", "lobby_news_box"))
+    if home is None or join is None or lobby is None:
+        pytest.skip("fixture screenshots missing")
+    frames = iter([home, join, lobby, lobby, BLACK])
+    done = []
+    monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: next(frames), raising=False)
+    monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
+    monkeypatch.setattr(snipe.controller, "_tap", lambda hwnd, key: done.append(("key", key)) or True)
+    monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: done.append(("click", p)) or True)
+    monkeypatch.setattr(snipe, "_back_to_search", lambda *a: done.append(("walk",)) or (_ for _ in ()).throw(snipe.SellerLeft("x")))
+    _clock(monkeypatch)
+    snipe.rejoin(1, dataclasses.replace(FAST, snipe_step_timeout=5))
+    assert [d[1] for d in done if d[0] == "key"] == [snipe.ESC, snipe.L, snipe.ENTER]
+    clicks = [d[1] for d in done if d[0] == "click"]
+    assert clicks[0] == screens.find_friend(home, "IAMBADATFUN") and clicks[1] == screens.find_join(join)
+    assert clicks[2] == screens.snipe_button(lobby, "news_x") and done[-1] == ("walk",)
+
+
+
+def test_rejoin_goes_on_when_no_news_box_shows(monkeypatch):
+    home, join, world = (cv2.imread(f"sniper_arena_scanner_handoff/live_{n}.png")
+                         for n in ("home_friends", "home_friend_join", "lobby_no_news_1900"))
+    if home is None or join is None or world is None:
+        pytest.skip("fixture screenshots missing")
+    frames = iter([home, join, world] + [world] * 100)
+    done = []
+    monkeypatch.setattr(snipe.screen, "capture", lambda hwnd: next(frames), raising=False)
+    monkeypatch.setattr(snipe.screen, "find_roblox", lambda prefer=None: 1, raising=False)
+    monkeypatch.setattr(snipe.controller, "_tap", lambda hwnd, key: True)
+    monkeypatch.setattr(snipe.navigate, "_click", lambda hwnd, p, img, hover=0: done.append(p) or True)
+    monkeypatch.setattr(snipe, "_back_to_search", lambda *a: done.append("walk") or (_ for _ in ()).throw(snipe.SellerLeft("x")))
+    _clock(monkeypatch)
+    snipe.rejoin(1, dataclasses.replace(FAST, snipe_step_timeout=5))
+    assert len(done) == 3 and done[-1] == "walk"  # friend, Join, then straight to the walk: no X clicked

@@ -13,7 +13,7 @@ import time
 from scanner.reading import screens
 from scanner.windows import controller, navigate, screen
 
-W, S, E = 0x57, 0x53, 0x45  # virtual keys
+W, S, E, ESC, L, ENTER = 0x57, 0x53, 0x45, 0x1B, 0x4C, 0x0D  # virtual keys
 MAX_RECONNECTS = 3  # Reconnect clicks in one snipe; the network is still down after that: stop
 NEWS_WAIT = 4  # s for the news box after a reconnect; it may not show at all
 STAY_PAUSE = 0.2  # after Inventory, All and Inspect (they stay on screen), and once a closing button is gone
@@ -138,6 +138,54 @@ def _back_to_search(hwnd: int, cfg, stopped: str, left: str) -> None:
     raise SellerLeft(left)
 
 
+def _until(hwnd: int, seconds: float, find, why: str):
+    """Like _wait, while Roblox switches between a game and its home page: it may be out of front a moment or change
+    window. (point, img, hwnd); Stopped(why) after `seconds`."""
+    end, img = time.time() + seconds, None
+    while time.time() < end:
+        hwnd = screen.find_roblox(hwnd) or hwnd
+        im = screen.capture(hwnd)
+        if im is not None:
+            img, point = im, find(im)
+            if point is not None:
+                return point, im, hwnd
+        time.sleep(0.25)
+    raise Stopped(why, img)
+
+
+def rejoin(hwnd: int, cfg) -> None:
+    """--loop, after a buy: leave the seller's server (Esc, L, Enter), click cfg.loop_friend on Roblox's home page,
+    then Join (only if the box says they are playing Sniper Arena), close the news box shown on joining, walk to the
+    Search terminal and open the search menu. Raises Stopped when a step does not show."""
+    for key in (ESC, L, ENTER):
+        if not controller._tap(hwnd, key):
+            raise Stopped("Roblox lost focus while leaving the server")
+        time.sleep(cfg.snipe_click_pause)
+    point, img, hwnd = _until(hwnd, cfg.loop_home_seconds, lambda im: screens.find_friend(im, cfg.loop_friend),
+                              f"left the server, but {cfg.loop_friend!r} did not show on Roblox's home page")
+    if not _click(hwnd, point, img, "friend"):
+        raise Stopped("click on the friend's name not sent", img)
+    point, img, hwnd = _until(hwnd, cfg.snipe_step_timeout, screens.find_join,
+                              f"no Join button saying {cfg.loop_friend} is playing Sniper Arena")
+    if not _click(hwnd, point, img, "join"):
+        raise Stopped("click on Join not sent", img)
+    # in the game: the news box shown on joining (it hides the Inventory button), or the Inventory button (seen live:
+    # no news box that time). Not while the home page (whose pictures can be red there) still shows
+    def joined(im):
+        seen = ("news" if screens.snipe_button(im, "news_x") else "world" if screens.snipe_button(im, "inventory")
+                else None)  # cheap colour checks first: the name is read only when one hits
+        return None if seen is None or screens.find_friend(im, cfg.loop_friend) else seen
+    found, img, hwnd = _until(hwnd, cfg.teleport_max_seconds, joined, "joined, but the game did not show")
+    if found == "world":  # the news box may still come a moment later
+        found = "news" if _wait(hwnd, NEWS_WAIT, lambda im: screens.snipe_button(im, "news_x"))[0] else None
+    if found == "news":
+        _press(hwnd, cfg, "news_x")
+    try:
+        _back_to_search(hwnd, cfg, "rejoined, but the search menu did not open after walking", "rejoined")
+    except SellerLeft:  # the search menu is open: the scan goes on
+        pass
+
+
 def _hold(hwnd: int, key: int, seconds: float) -> None:
     if not controller.hold_key(hwnd, key, seconds):
         raise Stopped("Roblox lost focus while a key was held")
@@ -186,7 +234,7 @@ def _scroll_stall(hwnd: int, cfg, img):
 def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda name, img: None) -> str:
     """Run the whole flow; returns what happened. Raises Stopped (nothing more sent) when a step fails.
     save(name, img) keeps the screen before every click and key hold (snipe_01_... in order)."""
-    _steps.update(n=0, save=save, short=False)
+    _steps.update(n=0, save=save, short=False, bought=False)
     # Arrived once the black "Teleporting..." screen has come and gone. Looked for from the click on, twice a second,
     # so a short one is not missed: the old list can stay up a while first, and a closed list alone proves nothing.
     seen_black, reconnects, img, start = False, 0, None, time.time()
@@ -292,6 +340,10 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
                 _steps["short"] = True
                 _press(hwnd, cfg, "robux_box_x", screens.find_robux_prompt_close)
     _press(hwnd, cfg, "stall_exit")
+    _steps["bought"] = dry or (buy is not None and not _steps["short"])
+    if not cfg.relist and not _steps["short"]:  # --loop, not the last snipe: rejoin() comes next, the stall is set up at the end
+        return ("Dry run: stopped at the confirm box (cancelled), nothing bought" if dry else
+                "Bought the item" if buy is not None else "The item was gone from the stall; nothing bought") + "."
     _press(hwnd, cfg, "inventory")
     _press(hwnd, cfg, "inventory_all")
     _press(hwnd, cfg, "inspect", screens.find_inspect)  # it moves with the item shown
