@@ -290,3 +290,20 @@ def test_the_loop_friend_and_its_join_button_are_found_on_roblox_home_page():
     x, y = screens.find_join(join)
     assert 179 < x < 464 and 410 < y < 460
     assert screens.find_join(home) is None  # no box open (the blue game picture is not a button)
+
+
+def test_items_listed_a_moment_ago_show_their_timer():
+    img = cv2.imread("sniper_arena_scanner_handoff/live_stall_available_in_secs.png")
+    if img is None:
+        pytest.skip("fixture screenshot missing")
+    assert set(screens.stall_timers(img)) == {14}  # "Available in 14 Secs" on every item
+    stall = cv2.imread("sniper_arena_scanner_handoff/snipe_8.png")
+    if stall is not None:
+        assert screens.stall_timers(stall) == []
+
+
+
+def test_timer_misreads_still_count(monkeypatch):
+    monkeypatch.setattr(screens.pytesseract, "image_to_string", lambda *a, **k: "Available In 14 Secs ln l4 in 9 Kar98k")
+    import numpy as np
+    assert screens.stall_timers(np.zeros((100, 100, 3), np.uint8)) == [14, 14, 9]

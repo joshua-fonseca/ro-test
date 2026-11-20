@@ -9,6 +9,7 @@ moves, is found by colour alone); anything that does not show in time stops the 
 """
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from scanner.reading import screens
 from scanner.windows import controller, navigate, screen
@@ -16,6 +17,8 @@ from scanner.windows import controller, navigate, screen
 W, S, E, ESC, L, ENTER = 0x57, 0x53, 0x45, 0x1B, 0x4C, 0x0D  # virtual keys
 MAX_RECONNECTS = 3  # Reconnect clicks in one snipe; the network is still down after that: stop
 NEWS_WAIT = 4  # s for the news box after a reconnect; it may not show at all
+_timer_reader = ThreadPoolExecutor(max_workers=1)  # reads "Available in N" timers while the stall is scrolled on
+PENDING_MAX = 90  # s: the longest "Available in N Secs" timer the game shows
 STAY_PAUSE = 0.2  # after Inventory, All and Inspect (they stay on screen), and once a closing button is gone
 HOVER = 0.1  # Roblox can ignore a press that lands the instant the cursor reaches a button (seen live on the stall X)
 
@@ -210,10 +213,41 @@ def _look_in_stall(hwnd: int, skin: str, low: int, high: int, seconds: float):
     return (found if isinstance(found, tuple) else None), img, list(seen)
 
 
-def _scroll_stall(hwnd: int, cfg, img):
-    """Scroll the stall's list down and return the screen once it stopped gliding; None if nothing moved (the end)."""
+def _find_in_stall(hwnd: int, cfg, skin: str, low: int, high: int, first_wait: float, timers: list | None = None):
+    """Look for the item, scrolling down the stall: (cash button or None, last screen, scrolls made). `timers`, if
+    given, gets (when read, a future of stall_timers) for every screen passed while the item is not found: read in the
+    background, so the search does not wait for it."""
+    buy, img, seen = _look_in_stall(hwnd, skin, low, high, first_wait)
+    scrolls = 0
+    while True:
+        if timers is not None and buy is None:
+            timers.append((time.time(), _timer_reader.submit(screens.stall_timers, img)))
+        # found, or everything in view is cheaper than the item (shortcut: assumes the stall is sorted high to low, as seen on 3 stalls)
+        if buy is not None or (seen and max(seen) < low) or scrolls >= cfg.stall_max_scrolls:
+            return buy, img, scrolls
+        if _scroll_stall(hwnd, cfg, img) is None:
+            return buy, img, scrolls  # the list did not move: that was the end (img stays the last real screen)
+        scrolls += 1
+        buy, img, seen = _look_in_stall(hwnd, skin, low, high, 2)
+
+
+def _stall_to_top(hwnd: int, cfg, img, scrolls: int) -> None:
+    """Scroll the stall back up `scrolls` steps, then on until it no longer moves: a big wheel burst can fall short."""
+    if not scrolls:
+        return
+    notches = -scrolls * cfg.stall_scroll_notches
+    for _ in range(cfg.stall_max_scrolls):
+        img = _scroll_stall(hwnd, cfg, img, notches)
+        if img is None:
+            return
+        notches = -cfg.stall_scroll_notches
+
+
+def _scroll_stall(hwnd: int, cfg, img, notches: int | None = None):
+    """Scroll the stall's list down (up if notches < 0) and return the screen once it stopped gliding; None if nothing
+    moved (the end)."""
     x0, y0, w, h = screen.client_rect(hwnd)
-    if not controller.scroll(hwnd, x0 + w // 2, y0 + h // 2, cfg.stall_scroll_notches):
+    if not controller.scroll(hwnd, x0 + w // 2, y0 + h // 2, cfg.stall_scroll_notches if notches is None else notches):
         raise Stopped("Roblox lost focus while scrolling the stall", img)
     for _ in range(6):  # up to 0.9 s: a slow start must not read as "the end"
         time.sleep(0.15)
@@ -293,16 +327,30 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     t_stall = time.time()
     log.info("timing: stall open %.1f s after the world showed (wait, walk and hold E included)", t_stall - t_world)
     # the stall's X shows before its items and prices have loaded: keep looking a while before calling the item gone
-    buy, img, seen = _look_in_stall(hwnd, skin, low, high, cfg.stall_load_seconds)
-    log.info("timing: item %s %.1f s after the stall opened", "found" if buy is not None else "not in view",
+    timers = []
+    buy, img, scrolls = _find_in_stall(hwnd, cfg, skin, low, high, cfg.stall_load_seconds, timers)
+    log.info("timing: item %s %.1f s after the stall opened", "found" if buy is not None else "not found",
              time.time() - t_stall)
-    for _ in range(cfg.stall_max_scrolls):  # the item may be further down: a stall lists dearest first
-        if buy is not None or (seen and max(seen) < low):
-            break  # found, or everything in view is cheaper than the item (shortcut: assumes the stall is sorted high to low, as seen on 3 stalls)
-        moved = _scroll_stall(hwnd, cfg, img)
-        if moved is None:
-            break  # the list did not move: that was the end (img stays the last real screen, for the diagnostics)
-        buy, img, seen = _look_in_stall(hwnd, skin, low, high, 2)
+    # Not found, but items listed a moment ago show "Available in N Secs" over their name: one of them may be it.
+    # Wait for the next timer to run out (they can differ), look again from the top, and so on; every look reads the
+    # timers again (a misread, or an item listed meanwhile)
+    t_wait, due = time.time(), set()
+    for _ in range(10):  # shortcut: at most 10 looks, against timers misread over and over
+        due |= {t + n + 1 for t, read in timers for n in read.result() if n <= PENDING_MAX}
+        due = {d for d in due if d > time.time() - 1}
+        if buy is not None or not due:
+            break
+        when = min(due)
+        time.sleep(max(0.0, when - time.time()))
+        due = {d for d in due if d > when + 0.5}
+        _stall_to_top(hwnd, cfg, img, scrolls)
+        timers = []
+        buy, img, scrolls = _find_in_stall(hwnd, cfg, skin, low, high, 2, timers)
+        log.info("waited %.0f s for items listed just now: the item %s", time.time() - t_wait,
+                 "is there" if buy is not None else "is not")
+    waited = round(time.time() - t_wait) if time.time() - t_wait > 1 else 0
+    gone = ("The item was gone from the stall" + (f" (waited {waited} s for items listed just now)" if waited else "")
+            + "; nothing bought")
     save("snipe_stall", img)  # diagnostics: the stall as it was read
     dry = False
     if buy is not None:
@@ -343,7 +391,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _steps["bought"] = dry or (buy is not None and not _steps["short"])
     if not cfg.relist and not _steps["short"]:  # --loop, not the last snipe: rejoin() comes next, the stall is set up at the end
         return ("Dry run: stopped at the confirm box (cancelled), nothing bought" if dry else
-                "Bought the item" if buy is not None else "The item was gone from the stall; nothing bought") + "."
+                "Bought the item" if buy is not None else gone) + "."
     _press(hwnd, cfg, "inventory")
     _press(hwnd, cfg, "inventory_all")
     _press(hwnd, cfg, "inspect", screens.find_inspect)  # it moves with the item shown
@@ -353,5 +401,5 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _press(hwnd, cfg, "same_items_check")
     done = ("Not enough cash (closed Roblox's Buy Robux box); nothing bought" if _steps["short"] else
             "Dry run: stopped at the confirm box (cancelled), nothing bought" if dry else
-            "Bought the item" if buy is not None else "The item was gone from the stall; nothing bought")
+            "Bought the item" if buy is not None else gone)
     return done + ", then put your stall up again."

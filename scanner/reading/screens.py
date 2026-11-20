@@ -438,6 +438,17 @@ def find_stall_buy(img: np.ndarray, name: str, low: int, high: int, seen: list |
     return None
 
 
+def stall_timers(img: np.ndarray) -> list[int]:
+    """Seconds left on every "Available in N Secs" item in a stall (listed a moment ago, not for sale yet): its name
+    is covered, so the item cannot be told by name until the timer runs out."""
+    h, w = img.shape[:2]
+    stall = img[int(0.15 * h):int(0.85 * h), int(0.15 * w):int(0.86 * w)]
+    text = pytesseract.image_to_string(_white(stall, 230), config="--psm 11")
+    # "In", "ln" for "in", and l / I / i for a 1 ("in l4") are common misreads
+    reads = (n.translate(str.maketrans("lIi", "111")) for n in re.findall(r"\b[il1]n\s+([0-9lIi]{1,3})\b", text, re.I))
+    return [int(n) for n in reads if n.isdigit()]
+
+
 # --snipe: buttons at fixed points of a 16:9 window (measured on 1322-1331 px wide screenshots) and the colour each
 # must show before it is clicked, so a click never lands on a screen that is not the expected one
 SNIPE = {

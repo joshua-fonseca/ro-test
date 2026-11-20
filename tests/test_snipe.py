@@ -428,3 +428,38 @@ def test_rejoin_goes_on_when_no_news_box_shows(monkeypatch):
     _clock(monkeypatch)
     snipe.rejoin(1, dataclasses.replace(FAST, snipe_step_timeout=5))
     assert len(done) == 3 and done[-1] == "walk"  # friend, Join, then straight to the walk: no X clicked
+
+
+def _read(*seconds):
+    from concurrent.futures import Future
+    f = Future()
+    f.set_result(list(seconds))
+    return f
+
+
+def test_items_listed_just_now_are_waited_for_one_timer_at_a_time(monkeypatch):
+    done, run = _flow(monkeypatch, [6, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Nya Reaper", 15)
+    looks, reads = [], iter([(9, 5, 5, 120), (7,), (), ()])  # 120: over the 90 s the game shows; 7: read on the 2nd look
+
+    def find(hwnd, cfg, skin, low, high, first_wait, timers=None):
+        looks.append(snipe.time.time())
+        timers.append((snipe.time.time(), _read(*next(reads))))
+        return None, shot(8), 2
+    monkeypatch.setattr(snipe, "_find_in_stall", find)
+    monkeypatch.setattr(snipe, "_stall_to_top", lambda hwnd, cfg, img, scrolls: done.append(("top", scrolls)))
+    assert run().startswith("The item was gone from the stall (waited 14 s for items listed just now)")
+    t0 = looks[0]
+    assert [round(t - t0) for t in looks] == [0, 6, 10, 14]  # 5 s + 1, 9 s + 1, then the 7 s read at 6 s, + 1
+    assert [d for d in done if d[0] == "top"] == [("top", 2)] * 3  # back to the top before each look
+
+
+def test_the_stall_is_scrolled_up_until_it_no_longer_moves(monkeypatch):
+    moves = iter([1, 1, None])
+    scrolled = []
+    monkeypatch.setattr(snipe, "_scroll_stall", lambda hwnd, cfg, img, notches=None: scrolled.append(notches) or next(moves))
+    snipe._stall_to_top(1, FAST, None, 3)
+    n = FAST.stall_scroll_notches
+    assert scrolled == [-3 * n, -n, -n]  # the big burst, then on until nothing moves
+    scrolled.clear()
+    snipe._stall_to_top(1, FAST, None, 0)
+    assert scrolled == []  # still at the top: no scroll at all
