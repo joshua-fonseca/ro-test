@@ -491,3 +491,16 @@ def test_rainbow_tiles_changing_colour_are_not_taken_for_a_scroll():
     assert snipe._stall_moved(stall, animated) < 1.0
     # a real scroll, by any amount: also when tiles land where other tiles were (the white names and prices still move)
     assert min(snipe._stall_moved(stall, np.roll(stall, -d, 0)) for d in range(3, 400, 3)) > 10
+
+
+
+def test_the_search_menu_opened_at_the_map_centre_is_not_taken_for_the_stall(monkeypatch):
+    collection = cv2.imread("sniper_arena_scanner_handoff/live_collection.png")
+    if collection is None:
+        pytest.skip("fixture screenshots missing")
+    assert screens.snipe_button(collection, "stall_exit") is not None  # its red X sits where the stall's does
+    done, run = _flow(monkeypatch, [6, collection], "Nya Reaper", 15)  # the seller left: E opened the search menu
+    with pytest.raises(snipe.SellerLeft, match="search menu opened"):
+        run()
+    assert [d[1] for d in done if d[0] == "hold"] == ["W", "S", "E"]  # no walk back: the search menu is already open
+    assert not [d for d in done if d[0] in ("click", "scroll")]

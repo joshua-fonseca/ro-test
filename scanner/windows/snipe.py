@@ -353,7 +353,14 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     _hold(hwnd, W, cfg.walk_seconds)
     _hold(hwnd, S, cfg.back_seconds)  # only after stepping back does the "E Open" prompt show
     _hold(hwnd, E, cfg.hold_e_seconds)
-    exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: screens.snipe_button(im, "stall_exit"))
+    # The search menu has its red X where the stall's is (seen live: the seller had left, we were at the map centre,
+    # and E opened the search menu, which was scrolled as if it were the stall): tell them apart first
+    def opened(im):
+        return "search" if screens.classify(im) == "collection" else screens.snipe_button(im, "stall_exit")
+    exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, opened)
+    if exit_point == "search":
+        _shot("search_menu_not_stall", img)
+        raise SellerLeft("the seller left the server (the search menu opened, not a stall)")
     if exit_point is None:
         _shot("seller_not_at_stall", img)  # most likely the seller left the server: the Teleport put us at the map centre
         _back_to_search(hwnd, cfg, "the seller's stall did not open, and the search menu did not open after walking back",
