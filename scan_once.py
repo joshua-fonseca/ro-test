@@ -508,7 +508,8 @@ def _snipe(hwnd: int, cfg, out: Path, target, shown: np.ndarray, card, listing,
             continue
         except flow.Stopped as e:
             say(f"Rejoining {cfg.loop_friend}'s server stopped: {e}. Your stall is not set up; take over from here."
-                if rejoining else f"Snipe stopped: {e}. Nothing more was sent; take over from here.")
+                if rejoining else f"Snipe stopped: {e}." if isinstance(e, flow.Left)
+                else f"Snipe stopped: {e}. Nothing more was sent; take over from here.")
             if e.img is not None:  # diagnostics: the screen the flow gave up on
                 cv2.imwrite(str(probe / "snipe_stopped.png"), e.img)
                 print(f"The screen it stopped on: {probe / 'snipe_stopped.png'}")
