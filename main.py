@@ -130,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         time.sleep(0.5)
     out = Path(cfg.output_dir)
     setup_run_log(out)
+    navigate.remember_slots(out / "tile_slots.json")
     discord.start(cfg, f"Run started {discord.stamp()} ("
                   + ("--snipe --dry-run" if a.dry_run else "--snipe" if a.snipe else "scan only")
                   + (f" --loop {a.loop}" if a.loop else "") + ")")
@@ -167,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 0
                 if code == scan_once.SNIPE_STOPPED:
                     print(f"Teleported for {target.skin_name}, but the steps after it stopped. Stopping the loop: take over.")
-                    ended = ("The snipe stopped part way; take over in the game."
+                    ended = ("The snipe stopped part way (see the line above)."
                              + (f" {bought} bought before this snipe (--loop {a.loop})." if a.loop else ""), True)
                     return 1
                 searched = target.skin_name if ok and not code else None  # after a failure, search again

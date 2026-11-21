@@ -22,7 +22,7 @@ def _setup(monkeypatch, tmp_path, rows, results, focus=lambda: True):
     monkeypatch.setattr(scan_once, "_run_once", run_once)
     monkeypatch.setattr("scanner.windows.screen", types.SimpleNamespace(
         find_roblox=lambda prefer=None: 1, is_focused=lambda h: focus()), raising=False)
-    monkeypatch.setattr("scanner.windows.navigate", types.SimpleNamespace(back_to_collection=lambda h: backs.append(1)),
+    monkeypatch.setattr("scanner.windows.navigate", types.SimpleNamespace(back_to_collection=lambda h: backs.append(1), remember_slots=lambda p: None),
                         raising=False)
     monkeypatch.setattr(main.time, "sleep", lambda s: pytest.fail("the loop must not pause"))
     return calls, backs
@@ -186,7 +186,7 @@ def test_a_dry_run_without_dry_targets_csv_stops_before_touching_anything(monkey
 
 @pytest.mark.parametrize("results, code, ended", [
     ([(scan_once.TELEPORTED, True)], 0, ("Finished: the stall is up again.", False)),
-    ([(scan_once.SNIPE_STOPPED, True)], 1, ("The snipe stopped part way; take over in the game.", True)),
+    ([(scan_once.SNIPE_STOPPED, True)], 1, ("The snipe stopped part way (see the line above).", True)),
     ([(1, False)] * 3, 1, ("3 scans failed in a row.", True)),
     ([], 130, "deleted"),
 ])

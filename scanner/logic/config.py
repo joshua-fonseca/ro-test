@@ -14,7 +14,8 @@ class Config:
     # main.py --snipe (seconds)
     teleport_wait_seconds: float = 2  # after the black loading screen is gone, before walking to the stall
     teleport_max_seconds: float = 60  # stop if the new server has not shown after this long
-    walk_seconds: float = 0.5  # hold W, then S, to stand where the stall's "E Open" prompt shows
+    walk_seconds: float = 0.7  # hold W toward the stall... (0.5 stopped short of the "E Open" prompt: seen live)
+    back_seconds: float = 0.3  # ...then S, to stand where its "E Open" prompt shows (0.5 was too far back: seen live)
     hold_e_seconds: float = 1  # hold E to open a stall
     back_to_search_seconds: float = 0.7  # hold W from the map centre (the seller had left) to reach the Search terminal
     stall_max_scrolls: int = 20  # how many times to scroll down a stall looking for the item (about 3 rows each)

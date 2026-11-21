@@ -127,7 +127,7 @@ The window must be 16:9 (the layout is measured in fractions of it). With severa
 
 - Without `--snipe` the scanner is read-only.
 - Only `--snipe` clicks Teleport, the buy button and its confirm check, and the Sell on Market / stall steps.
-- If Roblox says "Disconnected" after Teleport, `--snipe` clicks Reconnect (never Leave), closes the news box shown on joining (its red X), walks back to the Search terminal and goes on scanning: the reconnect lands on another server, so that listing is lost.
+- If Roblox says "Disconnected" after Teleport, `--snipe` clicks Reconnect (if that has not worked after 30 s or 3 tries, it clicks Leave, which closes Roblox, and the run stops), closes the news box shown on joining (its red X), walks back to the Search terminal and goes on scanning: the reconnect lands on another server, so that listing is lost.
 - With `--loop`, between buys it presses Esc, L, Enter to leave the server and clicks your friend's name and Join on Roblox's home page, only when the box says they are playing Sniper Arena.
 - It never clicks the game's "Buy ... and item" box's Buy button (that charges real money). Only that box's X is clicked.
 - `--dry-run` first: check the saved pictures in `output/probe/` (`snipe_NN_<step>.png`) before a real buy.

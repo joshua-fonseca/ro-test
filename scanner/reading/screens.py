@@ -514,7 +514,27 @@ def find_buy_cancel(img: np.ndarray) -> Point | None:
 
 def find_reconnect(img: np.ndarray) -> Point | None:
     """Centre of the Reconnect button of Roblox's "Disconnected" box, or None. Roblox draws the box in its own size,
-    so it is found by shape (a light grey bar near the middle) and only taken if it reads "Reconnect": never Leave."""
+    so it is found by shape (a light grey bar near the middle) and only taken if it reads "Reconnect"."""
+    box = _reconnect_box(img)
+    return None if box is None else (box[0] + box[2] // 2, box[1] + box[3] // 2)
+
+
+def find_leave(img: np.ndarray) -> Point | None:
+    """Centre of the Leave button of Roblox's "Disconnected" box (dark, just left of Reconnect), or None; only taken
+    if it reads "Leave". It closes Roblox: --snipe clicks it only once Reconnect has failed (3 clicks, or 30 s)."""
+    box = _reconnect_box(img)
+    if box is None:
+        return None
+    x, y, bw, bh = box
+    left = x - int(1.06 * bw)
+    crop = img[y:y + bh, max(0, left):x - int(0.04 * bw)]
+    text = pytesseract.image_to_string(_white(crop, 180), config="--psm 7")
+    if difflib.SequenceMatcher(None, _letters(text), "leave").ratio() >= 0.8:
+        return left + bw // 2, y + bh // 2
+    return None
+
+
+def _reconnect_box(img: np.ndarray):
     h, w = img.shape[:2]
     x0, y0 = int(0.3 * w), int(0.35 * h)
     region = img[y0:int(0.8 * h), x0:int(0.8 * w)]
@@ -524,8 +544,8 @@ def find_reconnect(img: np.ndarray) -> Point | None:
         if not (0.07 * w <= bw <= 0.2 * w and 0.025 * h <= bh <= 0.07 * h) or s[4] < 0.7 * bw * bh:
             continue
         text = pytesseract.image_to_string(cv2.resize(region[by:by + bh, bx:bx + bw], None, fx=2, fy=2), config="--psm 7")
-        if difflib.SequenceMatcher(None, _letters(text), "reconnect").ratio() >= 0.8:  # one letter off; never "leave"
-            return x0 + bx + bw // 2, y0 + by + bh // 2
+        if difflib.SequenceMatcher(None, _letters(text), "reconnect").ratio() >= 0.8:  # one letter off; "leave" never passes for it
+            return x0 + bx, y0 + by, bw, bh
     return None
 
 

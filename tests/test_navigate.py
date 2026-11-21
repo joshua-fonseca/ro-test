@@ -1,3 +1,4 @@
+import json
 import types
 
 import cv2
@@ -348,7 +349,7 @@ def test_a_remembered_tile_that_is_gone_is_forgotten_and_the_first_tile_is_tried
     w = World(monkeypatch)
     monkeypatch.setattr(navigate, "_has_tile", lambda img, point: point[0] < 150)  # now only the first tile is listed
     img, why = navigate.open_results(1, "Nya Machete")
-    assert img is not None and w.clicks[0] == (110, 220) and navigate._slot == {"Nya Machete": 0}
+    assert img is not None and w.clicks[0] == (110, 220) and navigate._slot == {}  # the first tile is the default: nothing kept
 
 
 def test_buttons_in_a_taller_search_options_are_found_not_taken_from_the_fixed_spot():
@@ -422,3 +423,20 @@ def test_a_banner_over_the_top_row_is_waited_out_not_taken_for_tiles(monkeypatch
     monkeypatch.setattr(navigate.screen, "capture", lambda hwnd: next(frames), raising=False)
     monkeypatch.setattr(navigate.time, "sleep", lambda s: None)
     assert navigate._without_banner(1, banner) is clean
+
+
+def test_the_tile_memory_is_kept_between_runs(tmp_path, monkeypatch):
+    from scanner.windows import navigate
+    monkeypatch.setattr(navigate, "_slot", {})
+    path = tmp_path / "tile_slots.json"
+    path.write_text('{"Prismatica ShadowDaggers": 1, "Bad": 9, "Null": null, "Text": "x"}')
+    navigate.remember_slots(path)
+    assert navigate._slot == {"Prismatica ShadowDaggers": 1}  # the good entry kept, the bad ones dropped
+    path.write_text("not json")
+    navigate.remember_slots(path)
+    assert navigate._slot == {"Prismatica ShadowDaggers": 1}  # a broken file changes nothing
+    navigate.remember_slots(tmp_path / "missing.json")  # no file yet: no error
+    navigate._set_slot("Nya Machete", 2)
+    assert json.loads((tmp_path / "missing.json").read_text()) == {"Prismatica ShadowDaggers": 1, "Nya Machete": 2}
+    navigate._set_slot("Prismatica ShadowDaggers", None)  # forgotten (back on the first tile): the file follows
+    assert json.loads((tmp_path / "missing.json").read_text()) == {"Nya Machete": 2}

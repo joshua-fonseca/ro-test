@@ -5,6 +5,7 @@ Windows only. Start with the collection screen open (any text in the search box 
 Every click uses a point from screens.find_*, which only returns one on the screen it belongs to; each step waits
 for the next screen to show before going on, and anything unexpected stops with nothing more clicked.
 """
+import json
 import logging
 import re
 import sys
@@ -269,6 +270,36 @@ def search_for(hwnd: int, skin: str, save=lambda name, img: None, *, category: s
 
 _name_reader = ThreadPoolExecutor(max_workers=1)  # the Search Options name (about 2 s of OCR), read while the list loads
 _slot: dict[str, int] = {}  # skin -> the tile (0 = first) its Search Options name matched last time
+_slot_file = None  # where _slot is kept between runs (set by remember_slots)
+
+
+def remember_slots(path) -> None:
+    """Keep the skin -> tile memory in `path` between runs: a skin whose own tile is not the first ('Prismatica
+    ShadowDaggers' comes after its [Rainbow]) is opened from the right tile on the first pass too. A bad or missing
+    file is an empty memory."""
+    global _slot_file
+    _slot_file = path
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return
+    if isinstance(saved, dict):  # one bad entry does not cost the good ones
+        _slot.update({k: v for k, v in saved.items() if isinstance(v, int) and 0 <= v < 6})
+
+
+def _set_slot(skin: str, k: int | None) -> None:
+    """Remember the tile of `skin` (None: forget it), and keep the file in step whenever that changes."""
+    if _slot.get(skin) == k:
+        return
+    if k is None:
+        _slot.pop(skin, None)
+    else:
+        _slot[skin] = k
+    if _slot_file is not None:
+        try:
+            _slot_file.write_text(json.dumps(_slot, indent=1))
+        except OSError as e:
+            log.warning("could not save the tile memory: %s", e)
 
 
 def _slot_point(first, k: int, img):
@@ -347,8 +378,12 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
     first = tile
     known = _slot.get(skin, 0)  # a search can show several variants ("Nya Machete [Rainbow]", "Nya Machete"): the tile
     if known and not _has_tile(img, _slot_point(first, known, img)):  # this skin was last found on goes first, if still there
-        _slot.pop(skin)
-        known = 0
+        settled = _settled(hwnd, img)  # a tile still drawing looks missing: only forget it (on disk too) once settled
+        if settled is not None:
+            img = settled
+        if not _has_tile(img, _slot_point(first, known, img)):
+            _set_slot(skin, None)
+            known = 0
     # A tile still drawing can look like no tile (seen: 6 tiles judged one, and the [Rainbow] variant taken for the
     # plain skin): one tile is only believed on a settled grid, then checked against the game's count in _opened_skin
     alone_grid = None
@@ -383,7 +418,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         log.info("timing: open: Search Options and check click %.2f s after the tile click; results showed %.2f s "
                  "after the check, name read done %.2f s after", t_check - t_tile, t_results - t_check, time.time() - t_check)
         if right_skin:
-            _slot[skin] = k
+            _set_slot(skin, k or None)  # the first tile is the default: nothing to remember
             break
         # the tile was another skin, or its name did not read: close what opened and try the next tile
         name = re.sub(r"[^a-z0-9]+", "-", skin.lower()).strip("-")
@@ -396,7 +431,7 @@ def open_results(hwnd: int, skin: str, save=lambda name, img: None):
         if img is None:
             return None, "Roblox lost focus"
     if not right_skin:
-        _slot.pop(skin, None)
+        _set_slot(skin, None)
         return None, f"Search Options was not for {skin!r}"
     if results is None:
         raw = screen.capture(hwnd)  # diagnostics: what was on screen instead

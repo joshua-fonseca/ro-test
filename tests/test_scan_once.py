@@ -626,3 +626,16 @@ def test_a_failed_rejoin_after_a_buy_says_so(monkeypatch, tmp_path):
                             report=lambda text, line=None: told.append(text)) == scan_once.SNIPE_STOPPED
     assert told == ["Bought the item.", "Rejoining IAMBADATFUN's server stopped: no friend. Your stall is not set up;"
                                         " take over from here."]
+
+
+def test_after_leave_the_message_does_not_ask_to_take_over_in_the_game(monkeypatch, tmp_path):
+    from scanner.logic.config import Config
+    from scanner.windows import snipe as flow
+    monkeypatch.setattr(scan_once, "_teleport", lambda hwnd, shown, card, probe=None: (True, ""))
+    monkeypatch.setattr(flow, "after_teleport", lambda *a: (_ for _ in ()).throw(flow.Left("clicked Leave, so Roblox closed")))
+    told = []
+    listing = types.SimpleNamespace(price=100, price_approx=False)
+    target = Target("Nya Reaper", "Knife", "Secret", 999, None, True)
+    assert scan_once._snipe(1, Config(), tmp_path, target, None, None, listing,
+                            report=lambda text, line=None: told.append(text)) == scan_once.SNIPE_STOPPED
+    assert told == ["Snipe stopped: clicked Leave, so Roblox closed."]

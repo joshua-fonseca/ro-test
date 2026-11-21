@@ -259,7 +259,7 @@ def _scrolling(monkeypatch, screens_in_order, skin, price):
 
 def test_the_item_further_down_the_stall_is_found_by_scrolling(monkeypatch):
     s1, s2, s3 = _stall(1), _stall(2), _stall(3)  # the three screens of one stall, top to bottom
-    done, run = _scrolling(monkeypatch, [6, 8, s1, s2, s2, s2, s3, s3, s3, 9, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6],
+    done, run = _scrolling(monkeypatch, [6, 8, s1, s2, s2, s2, s2, s3, s3, s3, s3, 9, 8, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6],
                            "Plastic Toy WA 2000", 10)
     assert run().startswith("Bought")
     assert [d for d in done if d[0] == "scroll"] == [("scroll", 3)] * 2
@@ -294,7 +294,7 @@ def test_a_slow_start_of_the_scroll_is_not_taken_for_the_end_of_the_stall(monkey
     s1, s2 = _stall(1), _stall(2)
     # the first look after the scroll still shows the old screen, the second one has moved: s1, s1, then s2 (the price 2000
     # is above everything on s2, so the search ends there)
-    done, run = _scrolling(monkeypatch, [6, 8, s1, s1, s2, s2, s2, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 2000)
+    done, run = _scrolling(monkeypatch, [6, 8, s1, s1, s2, s2, s2, s2, 8, 10, 10, 11, 11, 12, 13, 13, 14, 14, 6], "Plastic Toy WA 2000", 2000)
     assert run().startswith("The item was gone")
     assert [d for d in done if d[0] == "scroll"] == [("scroll", 3)]  # one scroll: it was not repeated or given up on
 
@@ -343,9 +343,23 @@ def test_reconnect_is_clicked_at_most_3_times(monkeypatch):
     if box is None:
         pytest.skip("fixture screenshots missing")
     done, run = _flow(monkeypatch, [box] * 10, "Nya Reaper", 15)  # the network stays down
-    with pytest.raises(snipe.Stopped, match="still disconnected after 3"):
+    with pytest.raises(snipe.Stopped, match="clicked Leave"):
         run()
-    assert len([d for d in done if d[0] == "click"]) == 3
+    clicks = [d[1] for d in done if d[0] == "click"]
+    assert clicks == [screens.find_reconnect(box)] * 3 + [screens.find_leave(box)]  # then Leave: it closes Roblox
+
+
+def test_leave_is_clicked_once_reconnect_has_failed_for_30_s(monkeypatch):
+    box = cv2.imread("sniper_arena_scanner_handoff/live_disconnected_1900.png")
+    if box is None:
+        pytest.skip("fixture screenshots missing")
+    done, run = _flow(monkeypatch, [box] * 10, "Nya Reaper", 15)
+    monkeypatch.setattr(snipe, "MAX_RECONNECTS", 99)
+    with pytest.raises(snipe.Stopped, match="clicked Leave"):
+        snipe.after_teleport(1, dataclasses.replace(FAST, teleport_max_seconds=600, snipe_click_pause=11), "Nya Reaper", 15, 15)
+    clicks = [d[1] for d in done if d[0] == "click"]
+    assert clicks[-1] == screens.find_leave(box) and len(clicks) == 4  # Reconnect at 0, 11, 22 s; at 33 s: Leave
+    assert 820 < clicks[-1][0] < 840  # Leave, left of Reconnect (953-1172)
 
 
 def test_no_loading_screen_after_reconnect_is_a_stop_not_a_return_to_scanning(monkeypatch):
@@ -463,3 +477,17 @@ def test_the_stall_is_scrolled_up_until_it_no_longer_moves(monkeypatch):
     scrolled.clear()
     snipe._stall_to_top(1, FAST, None, 0)
     assert scrolled == []  # still at the top: no scroll at all
+
+
+
+def test_rainbow_tiles_changing_colour_are_not_taken_for_a_scroll():
+    import numpy as np
+    stall = cv2.imread("sniper_arena_scanner_handoff/live_stall_all_same_price_1900.png")
+    if stall is None:
+        pytest.skip("fixture screenshot missing")
+    hsv = cv2.cvtColor(stall, cv2.COLOR_BGR2HSV)
+    hsv[..., 0] = (hsv[..., 0].astype(int) + 60) % 180  # every colour shifted, as the rainbow animation does
+    animated = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    assert snipe._stall_moved(stall, animated) < 1.0
+    # a real scroll, by any amount: also when tiles land where other tiles were (the white names and prices still move)
+    assert min(snipe._stall_moved(stall, np.roll(stall, -d, 0)) for d in range(3, 400, 3)) > 10

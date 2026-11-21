@@ -307,3 +307,4 @@ def test_timer_misreads_still_count(monkeypatch):
     monkeypatch.setattr(screens.pytesseract, "image_to_string", lambda *a, **k: "Available In 14 Secs ln l4 in 9 Kar98k")
     import numpy as np
     assert screens.stall_timers(np.zeros((100, 100, 3), np.uint8)) == [14, 14, 9]
+

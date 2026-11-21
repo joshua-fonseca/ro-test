@@ -9,13 +9,16 @@ moves, is found by colour alone); anything that does not show in time stops the 
 """
 import logging
 import time
+
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
 from scanner.reading import screens
 from scanner.windows import controller, navigate, screen
 
 W, S, E, ESC, L, ENTER = 0x57, 0x53, 0x45, 0x1B, 0x4C, 0x0D  # virtual keys
-MAX_RECONNECTS = 3  # Reconnect clicks in one snipe; the network is still down after that: stop
+MAX_RECONNECTS = 3  # Reconnect clicks in one snipe; the network is still down after that: Leave
+LEAVE_AFTER = 30  # s after the first Reconnect click: still disconnected, so Leave (it closes Roblox) and stop
 NEWS_WAIT = 4  # s for the news box after a reconnect; it may not show at all
 _timer_reader = ThreadPoolExecutor(max_workers=1)  # reads "Available in N" timers while the stall is scrolled on
 PENDING_MAX = 90  # s: the longest "Available in N Secs" timer the game shows
@@ -32,6 +35,10 @@ class Stopped(Exception):
     def __init__(self, why: str, img=None):
         super().__init__(why)
         self.img = img
+
+
+class Left(Stopped):
+    """Reconnect did not work, so Leave was clicked: Roblox closes."""
 
 
 class NotTeleported(Stopped):
@@ -243,6 +250,21 @@ def _stall_to_top(hwnd: int, cfg, img, scrolls: int) -> None:
         notches = -cfg.stall_scroll_notches
 
 
+def _stall_moved(a, b) -> float:
+    """How far the stall's list moved between two captures: the share (%) of pixels that turned from colourful to grey
+    or back, or that are grey in both (dark gaps, white names and prices) but changed. Not the plain pixel difference:
+    rainbow tiles animate their colours all the time (seen live: a stall at its end looked like it still moved, so the
+    search scrolled on for a minute), but a scroll moves the tiles and the text on them."""
+    if a.shape != b.shape:
+        return 99.0
+    h, w = a.shape[:2]
+    area = (slice(int(0.15 * h), int(0.85 * h)), slice(int(0.15 * w), int(0.86 * w)))
+    a, b = a[area].astype(int), b[area].astype(int)
+    ca, cb = (a.max(2) - a.min(2)) > 40, (b.max(2) - b.min(2)) > 40
+    text_moved = ~ca & ~cb & (np.abs(a - b).max(2) > 40)
+    return 100 * float(((ca != cb) | text_moved).mean())
+
+
 def _scroll_stall(hwnd: int, cfg, img, notches: int | None = None):
     """Scroll the stall's list down (up if notches < 0) and return the screen once it stopped gliding; None if nothing
     moved (the end)."""
@@ -252,16 +274,18 @@ def _scroll_stall(hwnd: int, cfg, img, notches: int | None = None):
     for _ in range(6):  # up to 0.9 s: a slow start must not read as "the end"
         time.sleep(0.15)
         new = _look(hwnd, img)
-        if navigate._grid_change(new, img) >= 1.0:
+        if _stall_moved(new, img) >= 1.0:
             break
     else:
         return None
-    for _ in range(12):  # it is gliding: wait until two looks are alike
+    still = 0
+    for _ in range(12):  # it is gliding: wait until it stands still twice in a row (the end of a glide is slow)
         time.sleep(0.15)
         cur = _look(hwnd, new)
-        if navigate._grid_change(cur, new) < 1.0:
-            return cur
+        still = still + 1 if _stall_moved(cur, new) < 1.0 else 0
         new = cur
+        if still >= 2:
+            return cur
     return new
 
 
@@ -272,6 +296,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
     # Arrived once the black "Teleporting..." screen has come and gone. Looked for from the click on, twice a second,
     # so a short one is not missed: the old list can stay up a while first, and a closed list alone proves nothing.
     seen_black, reconnects, img, start = False, 0, None, time.time()
+    first_reconnect = None
     end = start + cfg.teleport_max_seconds
     while True:
         hwnd = screen.find_roblox(hwnd) or hwnd  # the teleport may leave Roblox in a new window
@@ -282,10 +307,19 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
                 raise Stopped("click on Ok (Teleport Failed) not sent", img)
             time.sleep(cfg.snipe_click_pause)
             raise TeleportFailed("the server is full (Teleport Failed)", img)
-        again = None if img is None else screens.find_reconnect(img)  # "Disconnected": Reconnect (never Leave)
+        again = None if img is None else screens.find_reconnect(img)  # "Disconnected": Reconnect
         if again is not None:
-            if reconnects >= MAX_RECONNECTS:
-                raise Stopped(f"still disconnected after {reconnects} Reconnect clicks", img)
+            if reconnects >= MAX_RECONNECTS or (first_reconnect and time.time() - first_reconnect > LEAVE_AFTER):
+                # Reconnect is not working: Leave closes Roblox (user decision 2026-11-21), and the run stops
+                leave = screens.find_leave(img)
+                if leave is None:
+                    raise Stopped(f"still disconnected after {reconnects} Reconnect click(s), and no Leave button found", img)
+                if not _click(hwnd, leave, img, "leave"):
+                    raise Stopped(f"still disconnected after {reconnects} Reconnect click(s); the click on Leave was not "
+                                  "sent (Roblox lost focus, or the window changed size)", img)
+                raise Left(f"still disconnected after {reconnects} Reconnect click(s) in "
+                           f"{time.time() - first_reconnect:.0f} s: clicked Leave, so Roblox closed", img)
+            first_reconnect = first_reconnect or time.time()
             if not _click(hwnd, again, img, "reconnect"):
                 raise Stopped("click on Reconnect not sent", img)
             seen_black, reconnects, start = False, reconnects + 1, time.time()  # a fresh join from here: wait for it again
@@ -317,7 +351,7 @@ def after_teleport(hwnd: int, cfg, skin: str, low: int, high: int, save=lambda n
         _back_to_search(hwnd, cfg, "reconnected after a disconnect, but the search menu did not open after walking",
                         "reconnected after a disconnect (on another server, away from the seller)")
     _hold(hwnd, W, cfg.walk_seconds)
-    _hold(hwnd, S, cfg.walk_seconds)  # only after stepping back does the "E Open" prompt show
+    _hold(hwnd, S, cfg.back_seconds)  # only after stepping back does the "E Open" prompt show
     _hold(hwnd, E, cfg.hold_e_seconds)
     exit_point, img = _wait(hwnd, cfg.snipe_step_timeout, lambda im: screens.snipe_button(im, "stall_exit"))
     if exit_point is None:
